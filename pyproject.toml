@@ -1,0 +1,16 @@
+[project]
+name = "loopdbg"
+version = "0.1.0"
+description = "An autonomous debugging agent, built as an exercise in loop engineering."
+requires-python = ">=3.10"
+dependencies = ["anthropic>=0.40", "pytest>=8.0"]
+
+[project.scripts]
+loopdbg = "loopdbg.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["loopdbg"]
