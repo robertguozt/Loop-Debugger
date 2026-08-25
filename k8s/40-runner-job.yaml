@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anthropic-credentials
+  namespace: debug-agent
+type: Opaque
+stringData:
+  # Replace before applying, or create with:
+  #   kubectl -n debug-agent create secret generic anthropic-credentials \
+  #     --from-literal=api-key=sk-ant-...
+  api-key: REPLACE_ME
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: debug-agent-run
+  namespace: debug-agent
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: autonomous-debug-agent
+        app.kubernetes.io/component: runner
+    spec:
+      restartPolicy: Never
+      serviceAccountName: debug-agent-runner
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        # Required by the 'restricted' Pod Security Standard the namespace enforces.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: ghcr.io/robertguozt/loop-debugger:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--repo=/src"
+            - "--target=tests"
+            - "--executor=kubernetes"
+            - "--namespace=debug-agent"
+            - "--verbose"
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-credentials
+                  key: api-key
+            - name: DEBUG_AGENT_NAMESPACE
+              value: debug-agent
+            - name: DEBUG_AGENT_IMAGE
+              value: python:3.11-slim
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: src
+              mountPath: /src
+      volumes:
+        - name: src
+          persistentVolumeClaim:
+            claimName: debug-agent-src
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: debug-agent-src
+  namespace: debug-agent
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi

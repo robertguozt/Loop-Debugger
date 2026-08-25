@@ -1,0 +1,23 @@
+# Sandbox pods run untrusted code under test. Deny all egress except DNS, so a
+# failing test cannot reach the cluster network or the internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-deny-egress
+  namespace: debug-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: autonomous-debug-agent
+  policyTypes: ["Egress", "Ingress"]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

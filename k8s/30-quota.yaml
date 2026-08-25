@@ -1,0 +1,28 @@
+# Backstop against a runaway loop spawning pods.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: debug-agent-quota
+  namespace: debug-agent
+spec:
+  hard:
+    pods: "12"
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "12"
+    limits.memory: 24Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: debug-agent-limits
+  namespace: debug-agent
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 1Gi
+      defaultRequest:
+        cpu: 250m
+        memory: 256Mi

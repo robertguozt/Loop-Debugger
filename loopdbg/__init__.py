@@ -1,8 +1,29 @@
-"""loopdbg — an autonomous debugging agent built as an exercise in loop engineering."""
+"""Autonomous debugging agent: an Anthropic tool-use loop with a Kubernetes sandbox."""
 
-from .loop import Outcome, run
-from .brakes import default_brakes
-from .tools import Workspace
+from __future__ import annotations
 
-__version__ = "0.1.0"
-__all__ = ["run", "Outcome", "Workspace", "default_brakes"]
+from .agent import DebugAgent, DebugReport, Phase, StopReason
+from .config import AgentConfig, ConfigError, ModelConfig, SandboxConfig
+from .executors import ExecResult, Executor, KubernetesExecutor, LocalExecutor, SandboxError
+from .tools import TOOL_SCHEMAS, ToolBox, ToolOutcome
+
+__all__ = [
+    "TOOL_SCHEMAS",
+    "AgentConfig",
+    "ConfigError",
+    "DebugAgent",
+    "DebugReport",
+    "ExecResult",
+    "Executor",
+    "KubernetesExecutor",
+    "LocalExecutor",
+    "ModelConfig",
+    "Phase",
+    "SandboxConfig",
+    "SandboxError",
+    "StopReason",
+    "ToolBox",
+    "ToolOutcome",
+]
+
+__version__ = "1.0.0"

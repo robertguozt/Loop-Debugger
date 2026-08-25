@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: debug-agent
+  labels:
+    app.kubernetes.io/name: autonomous-debug-agent
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# Sandbox pods get no API credentials of their own. Only the runner talks to the API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: debug-sandbox
+  namespace: debug-agent
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: debug-agent-runner
+  namespace: debug-agent

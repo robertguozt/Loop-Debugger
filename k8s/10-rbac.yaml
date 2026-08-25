@@ -1,0 +1,33 @@
+# Least privilege, derived from the four API calls executors.py actually makes:
+# create_namespaced_pod, read_namespaced_pod, delete_namespaced_pod and
+# connect_get_namespaced_pod_exec. No list, no watch, no logs, no other resource,
+# and only inside the debug-agent namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: debug-agent-sandbox-operator
+  namespace: debug-agent
+rules:
+  # read_namespaced_pod covers the readiness poll; pod status arrives with it.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "create", "delete"]
+  # The client issues an HTTP GET to /pods/{name}/exec, which RBAC maps to 'get'.
+  # 'create' is kept so a future SPDY POST upgrade path keeps working.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: debug-agent-sandbox-operator
+  namespace: debug-agent
+subjects:
+  - kind: ServiceAccount
+    name: debug-agent-runner
+    namespace: debug-agent
+roleRef:
+  kind: Role
+  name: debug-agent-sandbox-operator
+  apiGroup: rbac.authorization.k8s.io

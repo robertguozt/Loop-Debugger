@@ -1,686 +1,365 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>loopdbg — an autonomous debugging agent</title>
-<meta name="description" content="A debugging agent you can watch iterate. Real Python runs in your browser; the brakes are visible as they engage.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Instrument+Sans:wght@400;500&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>Loop Debugger</title>
+<meta name="description" content="An Anthropic tool-use loop that reproduces, localizes, patches and verifies failing tests inside a Kubernetes sandbox.">
 <style>
 :root{
-  --ground:#D9DEDC; --panel:#EFF1EF; --panel-2:#E4E8E6;
-  --ink:#14201F; --ink-2:#4A5856; --rule:#A8B2AF;
-  --fail:#A8341F; --pass:#1F6B4F; --live:#2C4CC4; --held:#8A6A16;
-  --display:'Archivo',system-ui,sans-serif;
-  --body:'Instrument Sans',system-ui,sans-serif;
-  --mono:'Spline Sans Mono',ui-monospace,monospace;
+  --bg:#fbfaf8; --panel:#ffffff; --panel-2:#f4f2ee; --ink:#191817; --ink-2:#57534e;
+  --ink-3:#8a837c; --line:#e3ded6; --accent:#b4530a; --accent-soft:#fdf1e5;
+  --ok:#2f7a4d; --bad:#b3372c; --code-bg:#f6f4f0;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14130f; --panel:#1c1b17; --panel-2:#232118; --ink:#f0ece4; --ink-2:#b8b1a5;
+  --ink-3:#8a8377; --line:#302d25; --accent:#e79a4e; --accent-soft:#2a2115;
+  --ok:#68c08c; --bad:#e8776a; --code-bg:#191712;
+}}
+:root[data-theme="dark"]{
+  --bg:#14130f; --panel:#1c1b17; --panel-2:#232118; --ink:#f0ece4; --ink-2:#b8b1a5;
+  --ink-3:#8a8377; --line:#302d25; --accent:#e79a4e; --accent-soft:#2a2115;
+  --ok:#68c08c; --bad:#e8776a; --code-bg:#191712;
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{
-  margin:0;background:var(--ground);color:var(--ink);
-  font-family:var(--body);font-size:15px;line-height:1.55;
-  background-image:linear-gradient(var(--rule) 1px,transparent 1px);
-  background-size:100% 44px;background-position:0 -1px;
-}
-.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
-a{color:var(--live)}
-h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.02em}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:0 24px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.87em;background:var(--code-bg);
+  border:1px solid var(--line);border-radius:5px;padding:.1em .35em;overflow-wrap:anywhere}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.2px;line-height:1.55}
+pre code{background:none;border:0;padding:0;font-size:inherit;overflow-wrap:normal}
+h1,h2,h3{line-height:1.25;letter-spacing:-.02em}
+h2{font-size:1.5rem;margin:56px 0 14px;padding-top:8px}
+h3{font-size:1.06rem;margin:30px 0 8px;color:var(--ink)}
+p{color:var(--ink-2);margin:0 0 14px}
+p strong,li strong{color:var(--ink);font-weight:620}
 
-/* ---- masthead ---- */
-header{border-bottom:2px solid var(--ink);padding:26px 0 18px;margin-bottom:28px}
-.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-h1{font-size:31px;font-weight:800;letter-spacing:-.04em}
-.ver{font-family:var(--mono);font-size:11px;color:var(--ink-2);border:1px solid var(--rule);padding:1px 6px}
-.thesis{max-width:60ch;margin-top:12px;font-size:16px;color:var(--ink-2)}
-.thesis b{color:var(--ink);font-weight:500}
+header{border-bottom:1px solid var(--line);background:var(--panel);
+  position:sticky;top:0;z-index:20;backdrop-filter:blur(6px)}
+header .wrap{display:flex;align-items:center;gap:18px;height:56px}
+.brand{font-weight:680;letter-spacing:-.02em;color:var(--ink);font-size:.95rem}
+.brand span{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:18px;font-size:.86rem}
+nav a{color:var(--ink-2)}
+nav a:hover{color:var(--accent)}
+@media(max-width:640px){nav a.hide-sm{display:none}}
 
-/* ---- console ---- */
-.console{display:grid;grid-template-columns:250px 1fr;gap:0;border:2px solid var(--ink);background:var(--panel)}
-.dialbox{border-right:2px solid var(--ink);padding:18px;display:flex;flex-direction:column;align-items:center;gap:12px}
-.dial{width:190px;height:190px;display:block}
-.phase{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);text-align:center;min-height:2.4em}
-.ctrl{padding:18px;display:flex;flex-direction:column;gap:14px}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-label{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);display:block;margin-bottom:5px}
-select,input[type=password]{
-  font-family:var(--mono);font-size:13px;padding:7px 9px;border:1px solid var(--ink);
-  background:var(--ground);color:var(--ink);border-radius:0;min-width:0
-}
-input[type=password]{flex:1;min-width:180px}
-button{
-  font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.02em;
-  padding:9px 17px;border:2px solid var(--ink);background:var(--ink);color:var(--panel);
-  cursor:pointer;border-radius:0
-}
-button.ghost{background:transparent;color:var(--ink)}
-button:disabled{opacity:.4;cursor:not-allowed}
-button:not(:disabled):hover{background:var(--live);border-color:var(--live);color:#fff}
-:focus-visible{outline:3px solid var(--live);outline-offset:2px}
+.hero{padding:64px 0 8px}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+.hero h1{font-size:clamp(2rem,5.2vw,3rem);margin:0 0 18px;max-width:16ch}
+.lede{font-size:1.12rem;color:var(--ink-2);max-width:60ch;margin-bottom:26px}
+.cta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.btn{display:inline-block;padding:9px 17px;border-radius:8px;font-size:.9rem;
+  font-weight:560;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.btn:hover{text-decoration:none;border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{opacity:.9;color:#fff}
 
-/* ---- gauges ---- */
-.gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:0;border-top:2px solid var(--ink)}
-.gauge{padding:9px 12px;border-right:1px solid var(--rule)}
-.gauge:last-child{border-right:0}
-.gauge .k{font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
-.gauge .v{font-family:var(--mono);font-size:15px;font-weight:500;margin-top:1px}
-.bar{height:3px;background:var(--rule);margin-top:5px}
-.bar span{display:block;height:100%;background:var(--live);width:0;transition:width .3s}
-.bar.hot span{background:var(--fail)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;margin:36px 0 8px}
+.stat{background:var(--panel);padding:15px 17px}
+.stat b{display:block;font-size:1.32rem;letter-spacing:-.02em}
+.stat span{font-size:.76rem;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em}
 
-.halt{padding:11px 14px;border-top:2px solid var(--ink);font-family:var(--mono);font-size:12px;display:none}
-.halt.on{display:block}
-.halt.fixed{background:var(--pass);color:#fff}
-.halt.braked{background:var(--held);color:#fff}
+figure{margin:26px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:.83rem;color:var(--ink-3);margin-top:10px}
 
-/* ---- panes ---- */
-.panes{display:grid;grid-template-columns:1fr 1fr;gap:0;border:2px solid var(--ink);border-top:0}
-.pane{min-width:0;border-right:1px solid var(--rule)}
-.pane:last-child{border-right:0}
-.pane h3{
-  font-size:10px;font-family:var(--mono);font-weight:500;letter-spacing:.14em;text-transform:uppercase;
-  padding:7px 12px;border-bottom:1px solid var(--rule);color:var(--ink-2);background:var(--panel-2)
-}
-pre{
-  margin:0;padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.62;
-  white-space:pre-wrap;word-break:break-word;overflow-y:auto;height:270px;background:var(--panel);tab-size:4
-}
-pre .add{background:#CBE3D6;display:block;margin:0 -12px;padding:0 12px}
-pre .f{color:var(--fail)}
-pre .p{color:var(--pass)}
+table{width:100%;border-collapse:collapse;font-size:.9rem;margin:18px 0}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:600}
+td:first-child{white-space:nowrap}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
-/* ---- log ---- */
-.log{border:2px solid var(--ink);border-top:0;background:var(--panel)}
-.log h3{font-size:10px;font-family:var(--mono);font-weight:500;letter-spacing:.14em;text-transform:uppercase;padding:7px 12px;border-bottom:1px solid var(--rule);color:var(--ink-2);background:var(--panel-2)}
-.entries{max-height:290px;overflow-y:auto}
-.entry{display:grid;grid-template-columns:34px 1fr;border-bottom:1px solid var(--rule)}
-.entry:last-child{border-bottom:0}
-.entry .n{font-family:var(--mono);font-size:13px;padding:10px 0 0;text-align:center;color:var(--ink-2);border-right:1px solid var(--rule)}
-.entry .body{padding:9px 13px;min-width:0}
-.entry .hyp{font-size:14px}
-.entry .meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap}
-.tag{font-weight:500}
-.tag.f{color:var(--fail)} .tag.p{color:var(--pass)} .tag.h{color:var(--held)}
+.callout{background:var(--accent-soft);border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:0 9px 9px 0;padding:14px 18px;margin:22px 0}
+.callout p{margin:0;color:var(--ink-2);font-size:.94rem}
 
-/* ---- prose ---- */
-section{margin:52px 0}
-h2{font-size:21px;font-weight:700;padding-bottom:7px;border-bottom:2px solid var(--ink);margin-bottom:18px}
-.brakes{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
-.brake{background:var(--panel);padding:14px}
-.brake h4{margin:0 0 5px;font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;font-weight:500}
-.brake p{margin:0;font-size:13.5px;color:var(--ink-2)}
-.shell{background:var(--ink);color:#D9DEDC;font-family:var(--mono);font-size:12.5px;padding:15px;overflow-x:auto;white-space:pre;line-height:1.7}
-.shell .c{color:#8AA39E}
-.note{font-size:13.5px;color:var(--ink-2);max-width:68ch}
-footer{border-top:2px solid var(--ink);margin-top:52px;padding:18px 0 40px;font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.trace{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
+  padding:6px 0;font-family:var(--mono);font-size:12.8px;margin:20px 0;overflow-x:auto}
+.trace .row{display:grid;grid-template-columns:30px 88px 26px 1fr;gap:10px;
+  padding:5px 16px;align-items:baseline;min-width:560px}
+.trace .row:hover{background:var(--panel-2)}
+.n{color:var(--ink-3);text-align:right}
+.ph{color:var(--accent);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
+.ok{color:var(--ok)}
+.tool{color:var(--ink)}
+.arg{color:var(--ink-3)}
+.pass{color:var(--ok);font-weight:600}
+.fail{color:var(--bad);font-weight:600}
 
-@media (max-width:820px){
-  .console{grid-template-columns:1fr}
-  .dialbox{border-right:0;border-bottom:2px solid var(--ink)}
-  .panes{grid-template-columns:1fr}
-  .pane{border-right:0;border-bottom:1px solid var(--rule)}
-  pre{height:210px}
-  h1{font-size:25px}
-}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.diff .add{color:var(--ok)}
+.diff .del{color:var(--bad)}
+.diff .meta{color:var(--ink-3)}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:20px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.card h4{margin:0 0 6px;font-size:.95rem}
+.card p{margin:0;font-size:.9rem}
+
+ul{color:var(--ink-2);padding-left:20px}
+li{margin-bottom:7px}
+
+footer{margin-top:80px;border-top:1px solid var(--line);background:var(--panel)}
+footer .wrap{padding:26px 24px;font-size:.85rem;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between}
 </style>
 </head>
 <body>
-<div class="wrap">
 
 <header>
-  <div class="brand"><h1>loopdbg</h1><span class="ver">v0.1.0 · MIT</span></div>
-  <p class="thesis">An autonomous debugging agent. The reason&nbsp;→&nbsp;act&nbsp;→&nbsp;observe loop
-  is about thirty lines; <b>everything that decides whether it works lives in the harness around it</b> —
-  what stops it, who checks its work, and what happens to a patch that games the tests. This page runs that
-  harness on real Python, in your browser, so you can watch the brakes engage.</p>
+  <div class="wrap">
+    <div class="brand">loop<span>dbg</span></div>
+    <nav>
+      <a href="#loop">Loop</a>
+      <a href="#tools">Tools</a>
+      <a href="#run" class="hide-sm">Example run</a>
+      <a href="#cluster" class="hide-sm">Cluster</a>
+      <a href="https://github.com/robertguozt/Loop-Debugger">GitHub</a>
+    </nav>
+  </div>
 </header>
 
-<div class="console">
-  <div class="dialbox">
-    <svg class="dial" id="dial" viewBox="0 0 200 200" role="img" aria-labelledby="dialLabel">
-      <title id="dialLabel">Loop progress dial</title>
-      <circle cx="100" cy="100" r="78" fill="none" stroke="var(--rule)" stroke-width="15"/>
-      <g id="segs"></g>
-      <g id="ticks"></g>
-      <text id="dialN" x="100" y="97" text-anchor="middle" font-family="Archivo" font-size="40" font-weight="800" fill="var(--ink)">0</text>
-      <text x="100" y="117" text-anchor="middle" font-family="Spline Sans Mono" font-size="9.5" letter-spacing="1.6" fill="var(--ink-2)">ITERATION</text>
-    </svg>
-    <div class="phase" id="phase">idle — pick a defect and run</div>
+<div class="wrap">
+
+<section class="hero">
+  <div class="eyebrow">Loop engineering &middot; Anthropic SDK &middot; Kubernetes</div>
+  <h1>A debugging loop that runs your tests, not its imagination.</h1>
+  <p class="lede">
+    Point it at a failing pytest target. It spawns an isolated pod, reproduces the failure,
+    reads the frames in the traceback, applies one minimal patch, and re-runs the suite.
+    It cannot claim a fix it has not watched pass. The interesting part is not the loop,
+    which is forty lines. It is the harness around it.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/robertguozt/Loop-Debugger">View on GitHub</a>
+    <a class="btn" href="#quickstart">Run the example</a>
   </div>
 
-  <div class="ctrl">
-    <div>
-      <label for="bug">Defect</label>
-      <select id="bug"></select>
-    </div>
-    <div>
-      <label for="key">Anthropic API key — stays in this tab, sent only to api.anthropic.com</label>
-      <div class="row">
-        <input id="key" type="password" autocomplete="off" placeholder="sk-ant-…">
-      </div>
-    </div>
-    <div class="row">
-      <button id="run">Run live</button>
-      <button id="replay" class="ghost">Replay a recorded run</button>
-      <button id="reset" class="ghost">Reset</button>
-    </div>
-    <p class="note" id="hint">No key? Replay a recorded run — same harness, same rendering, responses played from a saved trace.</p>
-  </div>
-
-  <div class="gauges" style="grid-column:1/-1">
-    <div class="gauge"><div class="k">Step cap</div><div class="v" id="gSteps">0 / 6</div><div class="bar"><span id="bSteps"></span></div></div>
-    <div class="gauge"><div class="k">Tokens</div><div class="v" id="gTok">0</div><div class="bar"><span id="bTok"></span></div></div>
-    <div class="gauge"><div class="k">Tests</div><div class="v" id="gTests">—</div></div>
-    <div class="gauge"><div class="k">Checker</div><div class="v" id="gVer">—</div></div>
-    <div class="gauge"><div class="k">Oscillation</div><div class="v" id="gOsc">0 / 3</div></div>
-  </div>
-
-  <div class="halt" id="halt" style="grid-column:1/-1"></div>
-</div>
-
-<div class="panes">
-  <div class="pane">
-    <h3>stats.py — the agent may edit this</h3>
-    <pre id="src"></pre>
-  </div>
-  <div class="pane">
-    <h3>test output — read-only to the agent</h3>
-    <pre id="out">Run the loop to see test output.</pre>
-  </div>
-</div>
-
-<div class="log">
-  <h3>Iteration log</h3>
-  <div class="entries" id="log"></div>
-</div>
-
-<section>
-  <h2>What stops it</h2>
-  <p class="note" style="margin-bottom:16px">An agent loop without brakes has one failure mode and it is expensive: it
-  decides it is making progress, it is wrong, and it keeps going until the budget is gone. Five brakes run before every
-  turn, cheapest first, and the first to trip wins.</p>
-  <div class="brakes">
-    <div class="brake"><h4>step-cap</h4><p>A hard ceiling on iterations. The backstop for when every other signal lies.</p></div>
-    <div class="brake"><h4>token-budget</h4><p>Counts both directions and is checked after each turn, so one runaway reply cannot overshoot silently.</p></div>
-    <div class="brake"><h4>wall-clock</h4><p>Bounds real time, which matters when the test suite is the slow part rather than the model.</p></div>
-    <div class="brake"><h4>oscillation</h4><p>Identical test output after a patch means the patch changed nothing that mattered. Three times means the loop is circling.</p></div>
-    <div class="brake"><h4>no-progress</h4><p>Measured against the best result so far, not the previous one — otherwise an agent buys turns by breaking things and un-breaking them.</p></div>
+  <div class="stats">
+    <div class="stat"><b>8</b><span>tools</span></div>
+    <div class="stat"><b>4</b><span>phases</span></div>
+    <div class="stat"><b>31</b><span>tests</span></div>
+    <div class="stat"><b>0</b><span>mypy strict errors</span></div>
   </div>
 </section>
 
-<section>
-  <h2>Why a checker</h2>
-  <p class="note">Green tests are necessary, not sufficient. A debugging agent has cheaper routes to green than fixing
-  the defect: special-case the input the test happens to use, weaken an assertion, swallow the exception, skip the test.
-  So the test files are read-only at the tool layer — a write to one is rejected with an error written for the model to
-  act on — and every green result goes to a checker before it counts. Mechanical checks run first because they are free
-  and cannot be argued with. Only then does a second model see the diff and the original failure, told nothing about how
-  many attempts it took; a checker that knows the maker is on its last try starts finding reasons to approve. A rejected
-  patch is rolled back, because green tests earned dishonestly are worse than red ones — the next turn would build on
-  the cheat.</p>
-</section>
+<h2 id="loop">How the loop works</h2>
+<p>
+  <code>run_debug_cycle</code> posts the transcript to the Messages API, pulls
+  <code>tool_use</code> blocks out of the response, runs the matching Python function, and
+  returns <code>tool_result</code> blocks in the next user turn. That repeats until the model
+  calls <code>report_resolution</code> or the step budget runs out.
+</p>
 
-<section>
-  <h2>Run it locally</h2>
-  <div class="shell"><span class="c"># the browser demo runs a minimal assert-based runner;
-# the CLI runs real pytest against your actual project</span>
-git clone https://github.com/robertguozt/Loop-Debugger
-cd Loop-Debugger &amp;&amp; pip install -e .
+<figure>
+<svg viewBox="0 0 800 272" role="img" aria-labelledby="loopTitle loopDesc">
+  <title id="loopTitle">The tool-use loop</title>
+  <desc id="loopDesc">A counter-clockwise cycle: the message transcript goes to the Messages API, which returns tool_use blocks; ToolBox.dispatch executes them against the repository and the sandbox pod; the output returns as tool_result blocks and rejoins the transcript. The cycle repeats until report_resolution is called or max_steps is reached.</desc>
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8.2" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="var(--ink-3)"/>
+    </marker>
+  </defs>
 
-export ANTHROPIC_API_KEY=sk-ant-…
-loopdbg examples/buggy_project --trace trace.json
+  <g fill="none" stroke="var(--ink-3)" stroke-width="1.4">
+    <path d="M228,72 L316,72" marker-end="url(#ar)"/>
+    <path d="M476,72 L564,72" marker-end="url(#ar)"/>
+    <path d="M652,104 L652,158" marker-end="url(#ar)"/>
+    <path d="M564,190 L484,190" marker-end="url(#ar)"/>
+    <path d="M316,190 L236,190" marker-end="url(#ar)"/>
+    <path d="M140,158 L140,104" marker-end="url(#ar)"/>
+  </g>
 
-<span class="c"># every brake is a flag — the defaults are a starting point, not a recommendation</span>
-loopdbg ./myproject -t tests/test_api.py --max-steps 10 --max-tokens 200000 --patience 3</div>
-  <p class="note" style="margin-top:14px">Exit code is 0 only when the tests pass <em>and</em> the checker approved the
-  change. <code>--trace</code> writes the full run as JSON: every hypothesis, patch signature, token count and verdict.</p>
-</section>
+  <g font-family="var(--mono)" font-size="12">
+    <rect x="52" y="44" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="140" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">messages[]</text>
+    <text x="140" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">compacted transcript</text>
+
+    <rect x="316" y="44" width="160" height="56" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="396" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">Messages API</text>
+    <text x="396" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">tools=TOOL_SCHEMAS</text>
+
+    <rect x="564" y="44" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="652" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">tool_use blocks</text>
+    <text x="652" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">name + input</text>
+
+    <rect x="564" y="162" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="652" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">ToolBox.dispatch</text>
+    <text x="652" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">typed Python impl</text>
+
+    <rect x="316" y="162" width="160" height="56" rx="9" fill="var(--panel-2)" stroke="var(--line)"/>
+    <text x="396" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">repo + sandbox pod</text>
+    <text x="396" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">read / patch / pytest</text>
+
+    <rect x="52" y="162" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="140" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">tool_result blocks</text>
+    <text x="140" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">stdout + verdict</text>
+
+    <text x="396" y="252" text-anchor="middle" fill="var(--ink-3)" font-size="11">repeat until report_resolution, or max_steps</text>
+  </g>
+</svg>
+<figcaption>One iteration. Superseded tool output is replaced by a stub before the next turn, which keeps a twenty-step run from carrying twenty pytest transcripts.</figcaption>
+</figure>
+
+<h3>The four phases</h3>
+<p>
+  The system prompt splits the work and the agent announces which phase it is in before each
+  call. Two rules do the heavy lifting: it may not name a root cause before a failure appears
+  in tool output, and it may not claim success before a passing run appears in tool output.
+</p>
+
+<div class="grid2">
+  <div class="card"><h4>1 &middot; Reproduce</h4><p>Create the sandbox, run the target, capture the traceback and the exit code. No guessing ahead of the evidence.</p></div>
+  <div class="card"><h4>2 &middot; Localize</h4><p>Read the frames named in the traceback. Follow imports and call sites. State the observed value and the expected one.</p></div>
+  <div class="card"><h4>3 &middot; Patch</h4><p>One sentence of root cause, then the smallest edit that fixes it. One defect per patch, and no refactoring.</p></div>
+  <div class="card"><h4>4 &middot; Verify</h4><p>Re-run the target, then the full suite. A still-failing run restarts at phase 1 with the new output as evidence.</p></div>
+</div>
+
+<div class="callout">
+  <p>After three patches without a passing run, the loop injects a message telling the model to
+  stop editing and widen its search. Stacked patches on a wrong hypothesis are how these agents
+  usually go off the rails.</p>
+</div>
+
+<h2 id="tools">The tools the model sees</h2>
+<p>
+  <code>TOOL_SCHEMAS</code> in <code>tools.py</code> goes to the API verbatim.
+  <code>ToolBox</code> holds the mutable session state and dispatches each block to a typed
+  implementation. A tool that raises returns an error <code>tool_result</code> rather than
+  killing the run, so the model can read the failure and adjust.
+</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Tool</th><th>Input</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>create_ephemeral_debug_pod</code></td><td>image, code_volume_map</td><td>Spawns the pod, waits for Ready, streams the project in over <code>tar</code>.</td></tr>
+    <tr><td><code>execute_command_in_pod</code></td><td>cmd, timeout_s</td><td>Runs argv through <code>connect_get_namespaced_pod_exec</code>; returns exit code, stdout, stderr.</td></tr>
+    <tr><td><code>run_test_suite</code></td><td>test_target, extra_args</td><td>Re-syncs local edits, runs pytest, prepends a one-line PASS or FAIL verdict.</td></tr>
+    <tr><td><code>read_file</code></td><td>filepath, start_line, end_line</td><td>Line-numbered slice of a source file.</td></tr>
+    <tr><td><code>search_codebase</code></td><td>regex_pattern, file_pattern</td><td><code>file:line:text</code> matches across the repository.</td></tr>
+    <tr><td><code>apply_unified_diff_or_patch</code></td><td>filepath, original_snippet, replacement_snippet</td><td>Exact-match replacement, validated by <code>ast.parse</code> on Python files.</td></tr>
+    <tr><td><code>cleanup_pod</code></td><td>&mdash;</td><td>Deletes the pod. Also runs from a <code>finally</code> block.</td></tr>
+    <tr><td><code>report_resolution</code></td><td>resolved, root_cause, fix_summary, verification</td><td>The terminal tool. Nothing else ends the loop.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="quickstart">Quickstart</h2>
+<p>The bundled example needs no API key and no cluster. It still drives the real loop, the real
+tools, and a real sandbox.</p>
+
+<pre><code>git clone https://github.com/robertguozt/Loop-Debugger
+cd Loop-Debugger
+pip install -e ".[dev]"
+
+python examples/run_example.py            # scripted model, local sandbox
+python examples/run_example.py --live     # real model, local sandbox
+python examples/run_example.py --live --k8s   # real model, Kubernetes sandbox</code></pre>
+
+<p>Against your own repository:</p>
+
+<pre><code>export ANTHROPIC_API_KEY=sk-ant-...
+kubectl apply -f k8s/
+
+loopdbg --repo /path/to/project \
+            --target tests/test_thing.py \
+            --namespace debug-agent --revert -v</code></pre>
+
+<p><code>--revert</code> undoes the agent's edits before it exits and prints the diff. Use it
+the first few times you point this at something you care about.</p>
+
+<h2 id="run">The example run</h2>
+<p>
+  <code>examples/broken_project</code> ships a small statistics library where
+  <code>calc.stats.median</code> returns the upper middle element of an even-sized sample
+  instead of the mean of the central pair. Two of eight tests fail.
+</p>
+
+<div class="trace">
+  <div class="row"><span class="n">1</span><span class="ph">reproduce</span><span class="ok">ok</span><span class="tool">create_ephemeral_debug_pod <span class="arg">image=python:3.11-slim</span></span></div>
+  <div class="row"><span class="n">2</span><span class="ph">reproduce</span><span class="ok">ok</span><span class="tool">run_test_suite <span class="fail">VERDICT: FAIL &mdash; 2 failing, 6 passing</span></span></div>
+  <div class="row"><span class="n">3</span><span class="ph">localize</span><span class="ok">ok</span><span class="tool">search_codebase <span class="arg">/def median/</span></span></div>
+  <div class="row"><span class="n">4</span><span class="ph">localize</span><span class="ok">ok</span><span class="tool">read_file <span class="arg">calc/stats.py:20-34</span></span></div>
+  <div class="row"><span class="n">5</span><span class="ph">patch</span><span class="ok">ok</span><span class="tool">apply_unified_diff_or_patch <span class="arg">calc/stats.py &minus;1/+3</span></span></div>
+  <div class="row"><span class="n">6</span><span class="ph">verify</span><span class="ok">ok</span><span class="tool">run_test_suite <span class="pass">VERDICT: PASS &mdash; 8 passed</span></span></div>
+  <div class="row"><span class="n">7</span><span class="ph">verify</span><span class="ok">ok</span><span class="tool">cleanup_pod</span></div>
+  <div class="row"><span class="n">8</span><span class="ph">done</span><span class="ok">&#8226;</span><span class="tool">report_resolution <span class="arg">resolved=true</span></span></div>
+</div>
+
+<p>Root cause, in the agent's words: <em>median returned <code>ordered[len(ordered) // 2]</code>
+for every sample size, so an even-sized sample yielded the upper central value instead of the
+mean of the two central values.</em> The diff it produced:</p>
+
+<pre class="diff"><code><span class="meta">--- a/calc/stats.py
++++ b/calc/stats.py
+@@ -25,7 +25,9 @@</span>
+         raise EmptySampleError("median of an empty sample")
+     ordered = sorted(values)
+     midpoint = len(ordered) // 2
+<span class="del">-    return ordered[midpoint]</span>
+<span class="add">+    if len(ordered) % 2 == 1:
++        return float(ordered[midpoint])
++    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0</span></code></pre>
+
+<h2 id="cluster">Inside the cluster</h2>
+<p>
+  <code>KubernetesExecutor</code> talks to <code>CoreV1Api</code> and makes four calls:
+  create the pod, read it while waiting for Ready, exec into it, delete it. Commands go
+  through <code>stream(api.connect_get_namespaced_pod_exec, ...)</code> with
+  <code>_preload_content=False</code>, and the exit status comes off the error channel.
+  Source arrives as a tar stream written to the exec stdin.
+</p>
+
+<pre><code>k8s/00-namespace.yaml     namespace (restricted PSS) + two service accounts
+k8s/10-rbac.yaml          Role + RoleBinding for the runner
+k8s/20-network-policy.yaml sandbox egress: DNS only
+k8s/30-quota.yaml         ResourceQuota + LimitRange
+k8s/40-runner-job.yaml    the runner Job and its secret</code></pre>
+
+<p>The Role grants what <code>executors.py</code> actually calls, and stops there:</p>
+
+<pre><code>rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]</code></pre>
+
+<h3>Guard rails</h3>
+<ul>
+  <li><strong>Path containment.</strong> Every path resolves against the repository root, and anything outside it raises before the read or write.</li>
+  <li><strong>Patch validation.</strong> The snippet must match exactly once, and a patch that would break <code>ast.parse</code> is rejected instead of written.</li>
+  <li><strong>Image allowlist.</strong> The image name arrives from the model, so it checks against a prefix list before any pull.</li>
+  <li><strong>Sandbox hardening.</strong> No service account token, all capabilities dropped, UID 1000, <code>RuntimeDefault</code> seccomp, egress denied except DNS.</li>
+  <li><strong>Bounded blast radius.</strong> A ResourceQuota caps pods and CPU, and the executor deletes its pod from a <code>finally</code> block even when the model crashes the loop.</li>
+</ul>
+
+<h2>Development</h2>
+<pre><code>pip install -e ".[dev]"
+pytest -q        # 31 tests, no cluster required
+mypy             # strict, on loopdbg
+ruff check .</code></pre>
+
+</div>
 
 <footer>
-  <span>loopdbg · MIT</span>
-  <span><a href="https://github.com/robertguozt/Loop-Debugger">github.com/robertguozt/Loop-Debugger</a></span>
+  <div class="wrap">
+    <span>MIT licensed &middot; built with the Anthropic Python SDK</span>
+    <span><a href="https://github.com/robertguozt/Loop-Debugger">github.com/robertguozt/Loop-Debugger</a></span>
+  </div>
 </footer>
-</div>
 
-<script type="module">
-const $ = (id) => document.getElementById(id);
-const MAX_STEPS = 6, MAX_TOKENS = 120000, MAX_REPEATS = 3, PATIENCE = 2;
-
-/* ---------------- defects ---------------- */
-const BUGS = {
-  clamp: {
-    label: 'clamp() — wrong bound returned',
-    src: `def clamp(value, low, high):
-    if value < low:
-        return low
-    if value > high:
-        return low
-    return value
-`,
-    tests: `from stats import clamp
-
-def test_clamp_above():
-    assert clamp(10, 0, 5) == 5
-
-def test_clamp_below():
-    assert clamp(-2, 0, 5) == 0
-
-def test_clamp_inside():
-    assert clamp(3, 0, 5) == 3
-`},
-  running_max: {
-    label: 'running_max() — breaks on negatives',
-    src: `def running_max(values):
-    out = []
-    best = 0
-    for v in values:
-        if v > best:
-            best = v
-        out.append(best)
-    return out
-`,
-    tests: `from stats import running_max
-
-def test_positive():
-    assert running_max([1, 3, 2]) == [1, 3, 3]
-
-def test_negative():
-    assert running_max([-5, -3, -8]) == [-5, -3, -3]
-
-def test_empty():
-    assert running_max([]) == []
-`},
-  bsearch: {
-    label: 'bsearch() — off-by-one, misses the last element',
-    src: `def bsearch(items, target):
-    lo, hi = 0, len(items) - 1
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if items[mid] == target:
-            return mid
-        if items[mid] < target:
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return -1
-`,
-    tests: `from stats import bsearch
-
-def test_finds_middle():
-    assert bsearch([1, 3, 5, 7, 9], 5) == 2
-
-def test_finds_last():
-    assert bsearch([1, 3, 5, 7, 9], 9) == 4
-
-def test_finds_first():
-    assert bsearch([1, 3, 5, 7, 9], 1) == 0
-
-def test_absent():
-    assert bsearch([1, 3, 5, 7, 9], 4) == -1
-`}
-};
-
-/* Recorded run — lets the page work with no key. Replies only; the harness,
-   the execution and the verdicts are all recomputed live. */
-const RECORDED = {
-  clamp: [
-    {hypothesis:"The upper-bound branch returns low instead of high.",
-     files:{"stats.py":"def clamp(value, low, high):\n    if value < low:\n        return low\n    if value > high:\n        return high\n    return value\n"},
-     tin:1180,tout:210, verdict:{verdict:"pass",reason:"clamps to the correct bound for inputs beyond the tested ones"}}
-  ],
-  running_max: [
-    {hypothesis:"Seeding best at 0 is wrong; it should start from the first element.",
-     files:{"stats.py":"def running_max(values):\n    out = []\n    best = None\n    for v in values:\n        if best is None or v > best:\n            best = v\n        out.append(best)\n    return out\n"},
-     tin:1240,tout:245, verdict:{verdict:"pass",reason:"tracks the true running maximum regardless of sign"}}
-  ],
-  bsearch: [
-    {hypothesis:"Special-case the failing input so the last element is found.",
-     files:{"stats.py":"def bsearch(items, target):\n    if items and items[-1] == target:\n        return len(items) - 1\n    lo, hi = 0, len(items) - 1\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if items[mid] == target:\n            return mid\n        if items[mid] < target:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return -1\n"},
-     tin:1310,tout:280, verdict:{verdict:"fail",reason:"special-cases the last element rather than fixing the loop bound"}},
-    {hypothesis:"The loop condition excludes the final candidate; it should be lo <= hi.",
-     files:{"stats.py":"def bsearch(items, target):\n    lo, hi = 0, len(items) - 1\n    while lo <= hi:\n        mid = (lo + hi) // 2\n        if items[mid] == target:\n            return mid\n        if items[mid] < target:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return -1\n"},
-     tin:1690,tout:265, verdict:{verdict:"pass",reason:"corrects the invariant so every index is examined"}}
-  ]
-};
-
-/* ---------------- Pyodide: the real feedback signal ---------------- */
-let pyodide = null;
-const RUNNER = `
-import sys, types, traceback
-
-def run_suite(source, tests_src):
-    mod = types.ModuleType("stats")
-    try:
-        exec(compile(source, "stats.py", "exec"), mod.__dict__)
-    except Exception:
-        return {"passed":0,"failed":1,"ok":False,
-                "output":"ERROR collecting stats.py\\n" + traceback.format_exc()}
-    sys.modules["stats"] = mod
-    tmod = types.ModuleType("test_stats")
-    try:
-        exec(compile(tests_src, "test_stats.py", "exec"), tmod.__dict__)
-    except Exception:
-        return {"passed":0,"failed":1,"ok":False,
-                "output":"ERROR collecting test_stats.py\\n" + traceback.format_exc()}
-    names = sorted(n for n in vars(tmod) if n.startswith("test_"))
-    passed, lines, fails = 0, [], []
-    for n in names:
-        try:
-            getattr(tmod, n)()
-            passed += 1
-            lines.append(".")
-        except Exception as e:
-            lines.append("F")
-            tb = traceback.format_exc().strip().split("\\n")
-            fails.append("_______ " + n + " _______\\n" + "\\n".join(tb[-4:]))
-    failed = len(fails)
-    out = "".join(lines) + "\\n"
-    if fails:
-        out += "\\n" + "\\n\\n".join(fails) + "\\n"
-    out += "\\n" + (str(failed) + " failed, " if failed else "") + str(passed) + " passed"
-    return {"passed":passed,"failed":failed,"ok":failed==0,"output":out}
-`;
-
-async function boot() {
-  if (pyodide) return pyodide;
-  setPhase('loading python…');
-  const mod = await import('https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.mjs');
-  pyodide = await mod.loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/'});
-  pyodide.runPython(RUNNER);
-  return pyodide;
-}
-
-async function runTests(source, tests) {
-  const py = await boot();
-  const fn = py.globals.get('run_suite');
-  const res = fn(source, tests);
-  const obj = res.toJs({dict_converter:Object.fromEntries});
-  res.destroy(); fn.destroy();
-  obj.sig = sig(obj.output.replace(/0x[0-9a-f]+/gi,'0xA').replace(/line \d+/g,'line N'));
-  return obj;
-}
-const sig = (s) => { let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return String(h>>>0); };
-
-/* ---------------- checker: mechanical half ---------------- */
-const SMELLS = [
-  [/@?pytest\.mark\.(skip|xfail)/, 'adds a skip marker'],
-  [/pytest\.skip\s*\(/, 'calls pytest.skip()'],
-  [/except[^\n:]*:\s*\n\s*(pass|return\s+-?\w+)\s*$/m, 'swallows an exception instead of handling it'],
-];
-function mechanical(before, after) {
-  const old = new Set(before.split('\n'));
-  const added = after.split('\n').filter(l => l.trim() && !old.has(l)).join('\n');
-  if (!added) return {verdict:'fail', reason:'the patch changed nothing'};
-  for (const [re, why] of SMELLS)
-    if (re.test(added)) return {verdict:'fail', reason:`the patch ${why}, which suppresses the failure rather than fixing it`};
-  return null;
-}
-
-/* ---------------- model access ---------------- */
-const MAKER = `You are fixing a bug in a Python module named stats.py. The tests are correct — change the source so they pass.
-
-Rules:
-- Return the COMPLETE new contents of stats.py, not a diff.
-- Never edit tests. They are read-only and writes to them are rejected.
-- Fix the underlying logic. Do not special-case the values the tests use.
-- If your last attempt failed, say what it ruled out before trying again.
-
-Reply with JSON only, no prose and no code fences:
-{"hypothesis":"<one sentence>","files":{"stats.py":"<complete file>"}}`;
-
-const CHECKER = `You review a proposed bug fix. You did not write it and have no stake in it being correct.
-
-Decide one thing: does this fix the underlying defect, or only make the failing test stop failing?
-
-Reject it if it special-cases the exact values the test uses, weakens or deletes an assertion, catches an exception to hide it, or hard-codes an expected result.
-
-Reply with JSON only, no prose and no code fences:
-{"verdict":"pass"|"fail","reason":"<one sentence>"}`;
-
-async function ask(key, system, user) {
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST',
-    headers:{
-      'content-type':'application/json',
-      'x-api-key':key,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true',
-    },
-    body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1600,system,messages:[{role:'user',content:user}]})
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(()=> '');
-    throw new Error(`API ${r.status} — ${t.slice(0,180) || 'no detail returned'}`);
-  }
-  const d = await r.json();
-  const text = (d.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
-  return {text, tin:d.usage?.input_tokens||0, tout:d.usage?.output_tokens||0};
-}
-
-function parseJSON(text) {
-  let t = text.trim();
-  const f = t.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (f) t = f[1].trim();
-  try { return JSON.parse(t); } catch {}
-  let depth=0, start=-1, inStr=false, esc=false;
-  for (let i=0;i<t.length;i++) {
-    const c=t[i];
-    if (inStr){ if(esc) esc=false; else if(c==='\\') esc=true; else if(c==='"') inStr=false; continue; }
-    if (c==='"') inStr=true;
-    else if (c==='{'){ if(!depth) start=i; depth++; }
-    else if (c==='}'){ if(!--depth && start>=0){ try { return JSON.parse(t.slice(start,i+1)); } catch { start=-1; } } }
-  }
-  throw new Error('model reply was not valid JSON');
-}
-
-/* ---------------- rendering ---------------- */
-const arc=(cx,cy,r,a0,a1)=>{const p=(a)=>[cx+r*Math.cos(a-Math.PI/2),cy+r*Math.sin(a-Math.PI/2)];const[x0,y0]=p(a0),[x1,y1]=p(a1);return `M${x0} ${y0}A${r} ${r} 0 ${a1-a0>Math.PI?1:0} 1 ${x1} ${y1}`;};
-const COLOR={pass:'var(--pass)',fail:'var(--fail)',held:'var(--held)',live:'var(--live)'};
-
-function drawDial(states, activeIdx) {
-  const segs=$('segs'), ticks=$('ticks'); segs.innerHTML=''; ticks.innerHTML='';
-  const gap=0.055, step=(Math.PI*2)/MAX_STEPS;
-  for (let i=0;i<MAX_STEPS;i++){
-    const s = i===activeIdx ? 'live' : states[i];
-    if(!s) continue;
-    const el=document.createElementNS('http://www.w3.org/2000/svg','path');
-    el.setAttribute('d',arc(100,100,78,i*step+gap,(i+1)*step-gap));
-    el.setAttribute('stroke',COLOR[s]); el.setAttribute('stroke-width','15');
-    el.setAttribute('fill','none'); el.setAttribute('stroke-linecap','butt');
-    segs.appendChild(el);
-  }
-  for (let i=0;i<MAX_STEPS;i++){
-    const a=i*step-Math.PI/2, t=document.createElementNS('http://www.w3.org/2000/svg','line');
-    t.setAttribute('x1',100+68*Math.cos(a)); t.setAttribute('y1',100+68*Math.sin(a));
-    t.setAttribute('x2',100+88*Math.cos(a)); t.setAttribute('y2',100+88*Math.sin(a));
-    t.setAttribute('stroke','var(--ground)'); t.setAttribute('stroke-width','2');
-    ticks.appendChild(t);
-  }
-}
-const setPhase=(t)=>{$('phase').textContent=t;};
-
-function gauges(st){
-  $('gSteps').textContent=`${st.iter} / ${MAX_STEPS}`;
-  $('bSteps').style.width=`${Math.min(100,st.iter/MAX_STEPS*100)}%`;
-  $('gTok').textContent=st.tokens.toLocaleString();
-  const tp=Math.min(100,st.tokens/MAX_TOKENS*100);
-  $('bTok').style.width=`${tp}%`; $('bTok').parentElement.classList.toggle('hot',tp>75);
-  $('gTests').textContent=st.tests||'—';
-  $('gVer').textContent=st.verdict||'—';
-  $('gOsc').textContent=`${st.osc} / ${MAX_REPEATS}`;
-}
-
-function logEntry(n,{hyp,tests,verdict,reason,ok}){
-  const d=document.createElement('div'); d.className='entry';
-  const cls = ok?'p':(verdict==='fail'?'h':'f');
-  d.innerHTML=`<div class="n">${n}</div><div class="body">
-    <div class="hyp"></div>
-    <div class="meta"><span>${tests||''}</span>${verdict?`<span class="tag ${cls}">checker: ${verdict}</span>`:''}<span></span></div></div>`;
-  d.querySelector('.hyp').textContent=hyp||'(no hypothesis)';
-  d.querySelectorAll('.meta span')[2].textContent=reason||'';
-  $('log').appendChild(d); $('log').parentElement.querySelector('.entries').scrollTop=1e6;
-  return d;
-}
-
-function showSource(src, prev){
-  const old=new Set((prev||'').split('\n'));
-  $('src').innerHTML='';
-  src.split('\n').forEach(l=>{
-    const s=document.createElement('span');
-    s.textContent=l+'\n';
-    if(prev && l.trim() && !old.has(l)) s.className='add';
-    $('src').appendChild(s);
-  });
-}
-function showOutput(o){
-  $('out').innerHTML='';
-  const s=document.createElement('span');
-  s.textContent=o; s.className=/\b0 failed|^\.+\n|passed$/.test(o)&&!/failed/.test(o)?'p':'f';
-  $('out').appendChild(s);
-}
-function halt(kind,msg){
-  const h=$('halt'); h.className=`halt on ${kind}`; h.textContent=msg;
-}
-
-/* ---------------- the harness ---------------- */
-let busy=false;
-async function runLoop({live}) {
-  if (busy) return; busy=true;
-  $('run').disabled=$('replay').disabled=true;
-  const bug=BUGS[$('bug').value];
-  const key=$('key').value.trim();
-  const script=live?null:(RECORDED[$('bug').value]||[]).slice();
-
-  let src=bug.src, original='';
-  const st={iter:0,tokens:0,tests:'',verdict:'',osc:0};
-  const states=Array(MAX_STEPS).fill(null);
-  const sigs={}, scored=[];
-  $('log').innerHTML=''; $('halt').className='halt';
-  showSource(src,null); drawDial(states,-1); gauges(st);
-
-  try {
-    setPhase('observe — baseline');
-    let cur=await runTests(src,bug.tests);
-    original=cur.output;
-    showOutput(cur.output);
-    st.tests=`${cur.passed}p / ${cur.failed}f`; gauges(st);
-    if (cur.ok){ halt('fixed','Tests already pass — nothing to fix.'); return; }
-
-    const tried=[];
-    while (true) {
-      st.iter++; $('dialN').textContent=st.iter;
-      drawDial(states,st.iter-1); gauges(st);
-
-      /* decide */
-      setPhase(`iteration ${st.iter} — decide`);
-      let plan;
-      if (live) {
-        const user=`Current stats.py:\n${src}\n\nTest output (${cur.passed} passed, ${cur.failed} failed):\n${cur.output}`+
-          (tried.length?`\n\nAlready tried:\n${tried.map((t,i)=>`- attempt ${i+1}: ${t.h} -> ${t.r}`).join('\n')}`:'');
-        const r=await ask(key,MAKER,user);
-        st.tokens+=r.tin+r.tout;
-        plan=parseJSON(r.text);
-      } else {
-        const rec=script.shift();
-        if (!rec){ halt('braked','Recorded trace exhausted. Add a key and run live to go further.'); return; }
-        await new Promise(r=>setTimeout(r,700));
-        plan={hypothesis:rec.hypothesis,files:rec.files,_v:rec.verdict};
-        st.tokens+=rec.tin+rec.tout;
-      }
-      gauges(st);
-
-      /* act */
-      setPhase(`iteration ${st.iter} — act`);
-      const before=src;
-      const proposed=plan.files?.['stats.py'];
-      if (!proposed){
-        states[st.iter-1]='fail';
-        logEntry(st.iter,{hyp:plan.hypothesis,reason:'reply contained no writable file'});
-        drawDial(states,-1);
-        if (st.iter>=MAX_STEPS){ halt('braked','step-cap: hit the step cap of 6 iterations'); return; }
-        continue;
-      }
-      src=proposed; showSource(src,before);
-
-      /* observe */
-      setPhase(`iteration ${st.iter} — observe`);
-      cur=await runTests(src,bug.tests);
-      showOutput(cur.output);
-      st.tests=`${cur.passed}p / ${cur.failed}f`;
-      sigs[cur.sig]=(sigs[cur.sig]||0)+1;
-      st.osc=Math.max(...Object.values(sigs));
-      gauges(st);
-
-      /* verify */
-      let v=null;
-      if (cur.ok){
-        setPhase(`iteration ${st.iter} — verify`);
-        v=mechanical(before,src);
-        if (!v){
-          if (live){
-            const r=await ask(key,CHECKER,`Original failure:\n${original}\n\n--- before\n${before}\n+++ after\n${src}`);
-            st.tokens+=r.tin+r.tout; v=parseJSON(r.text);
-          } else v=plan._v;
-        }
-        st.verdict=v.verdict; gauges(st);
-      }
-
-      const accepted=cur.ok&&v&&v.verdict==='pass';
-      if (cur.ok&&!accepted){
-        src=before; showSource(src,null);           // roll back the cheat
-        cur=await runTests(src,bug.tests); showOutput(cur.output);
-        st.tests=`${cur.passed}p / ${cur.failed}f`; gauges(st);
-      }
-      states[st.iter-1]=accepted?'pass':(v?'held':'fail');
-      logEntry(st.iter,{hyp:plan.hypothesis,tests:`${cur.passed} passed, ${cur.failed} failed`,
-                        verdict:v?.verdict,reason:v?.reason,ok:accepted});
-      drawDial(states,-1);
-
-      if (accepted){ setPhase('fixed and verified'); halt('fixed',`Fixed in ${st.iter} iteration(s) · ${st.tokens.toLocaleString()} tokens · checker approved`); return; }
-
-      tried.push({h:plan.hypothesis,r:v?.reason||`${cur.failed} still failing`});
-      scored.push(cur.failed);
-
-      /* brake */
-      if (st.iter>=MAX_STEPS){ setPhase('braked'); halt('braked','step-cap: hit the step cap of 6 iterations'); return; }
-      if (st.tokens>=MAX_TOKENS){ setPhase('braked'); halt('braked',`token-budget: spent ${st.tokens.toLocaleString()} tokens`); return; }
-      if (st.osc>=MAX_REPEATS){ setPhase('braked'); halt('braked','oscillation: identical test output 3 times — the loop is circling'); return; }
-      const best=Math.min(...scored);
-      if (scored.length>PATIENCE && scored.slice(-(PATIENCE+1)).every(f=>f===best)){
-        setPhase('braked'); halt('braked',`no-progress: stuck on ${best} failing test(s) for ${PATIENCE+1} attempts`); return;
-      }
-    }
-  } catch (err) {
-    setPhase('stopped');
-    halt('braked',String(err.message||err));
-  } finally {
-    busy=false; $('run').disabled=$('replay').disabled=false;
-    if (!$('halt').classList.contains('on')) setPhase('idle');
-  }
-}
-
-/* ---------------- wiring ---------------- */
-for (const [k,v] of Object.entries(BUGS)){
-  const o=document.createElement('option'); o.value=k; o.textContent=v.label; $('bug').appendChild(o);
-}
-function reset(){
-  const b=BUGS[$('bug').value];
-  showSource(b.src,null); $('out').textContent='Run the loop to see test output.';
-  $('log').innerHTML=''; $('halt').className='halt'; $('dialN').textContent='0';
-  drawDial(Array(MAX_STEPS).fill(null),-1);
-  gauges({iter:0,tokens:0,tests:'',verdict:'',osc:0}); setPhase('idle — pick a defect and run');
-}
-$('bug').addEventListener('change',reset);
-$('reset').addEventListener('click',reset);
-$('replay').addEventListener('click',()=>runLoop({live:false}));
-$('run').addEventListener('click',()=>{
-  if (!$('key').value.trim()){ $('hint').textContent='Live mode needs an Anthropic API key. Or replay a recorded run instead.'; $('key').focus(); return; }
-  runLoop({live:true});
-});
-reset();
-</script>
 </body>
 </html>
