@@ -4,362 +4,1220 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Loop Debugger</title>
-<meta name="description" content="An Anthropic tool-use loop that reproduces, localizes, patches and verifies failing tests inside a Kubernetes sandbox.">
+<meta name="description" content="loopdbg drives a native Anthropic tool-use loop that reproduces, localizes, patches and verifies failing pytest targets inside an ephemeral Kubernetes pod.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+/* ─── tokens ──────────────────────────────────────────────────────────── */
 :root{
-  --bg:#fbfaf8; --panel:#ffffff; --panel-2:#f4f2ee; --ink:#191817; --ink-2:#57534e;
-  --ink-3:#8a837c; --line:#e3ded6; --accent:#b4530a; --accent-soft:#fdf1e5;
-  --ok:#2f7a4d; --bad:#b3372c; --code-bg:#f6f4f0;
-  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+  --s-1:4px;  --s-2:8px;  --s-3:12px; --s-4:16px; --s-5:20px;
+  --s-6:24px; --s-8:32px; --s-10:40px; --s-12:48px; --s-16:64px;
+  --r-1:4px; --r-2:6px; --r-3:10px; --r-full:999px;
+  --shadow-1:0 1px 2px rgb(20 16 10 / .05);
+  --shadow-2:0 2px 6px rgb(20 16 10 / .07), 0 1px 2px rgb(20 16 10 / .05);
+  --shadow-3:0 12px 32px rgb(20 16 10 / .13), 0 2px 6px rgb(20 16 10 / .07);
+  --ui:"Plus Jakarta Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --display:"Instrument Serif",ui-serif,Georgia,"Times New Roman",serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --rail:236px; --topbar:52px;
+
+  --bg:#FBFAF9; --surface:#FFFFFF; --surface-2:#F3F1ED; --surface-3:#EAE6DF;
+  --border:#E3DED6; --border-strong:#CDC6BA;
+  --text:#16150F; --muted:#55504A; --subtle:#6A645B;
+  --accent:#9C4A11; --accent-fg:#FFFFFF; --accent-wash:#FBF0E4; --accent-line:#E0BE97;
+  --ok:#1C6640; --ok-wash:#EAF3ED; --bad:#9B2C22; --bad-wash:#FBEDEB;
+  --ring:#9C4A11; --skeleton:#E9E5DE; --skeleton-hi:#F5F2EC;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#14130f; --panel:#1c1b17; --panel-2:#232118; --ink:#f0ece4; --ink-2:#b8b1a5;
-  --ink-3:#8a8377; --line:#302d25; --accent:#e79a4e; --accent-soft:#2a2115;
-  --ok:#68c08c; --bad:#e8776a; --code-bg:#191712;
+  --bg:#121110; --surface:#1A1917; --surface-2:#221F1C; --surface-3:#2A2621;
+  --border:#2F2B26; --border-strong:#443E36;
+  --text:#F3EFE8; --muted:#B0A99E; --subtle:#948D82;
+  --accent:#E9A05A; --accent-fg:#121110; --accent-wash:#2A2117; --accent-line:#5C462C;
+  --ok:#6FC894; --ok-wash:#16241C; --bad:#EF8A7C; --bad-wash:#2A1815;
+  --ring:#E9A05A; --skeleton:#26231F; --skeleton-hi:#332E28;
+  --shadow-1:0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2:0 2px 6px rgb(0 0 0 / .45), 0 1px 2px rgb(0 0 0 / .3);
+  --shadow-3:0 12px 32px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .4);
 }}
 :root[data-theme="dark"]{
-  --bg:#14130f; --panel:#1c1b17; --panel-2:#232118; --ink:#f0ece4; --ink-2:#b8b1a5;
-  --ink-3:#8a8377; --line:#302d25; --accent:#e79a4e; --accent-soft:#2a2115;
-  --ok:#68c08c; --bad:#e8776a; --code-bg:#191712;
+  --bg:#121110; --surface:#1A1917; --surface-2:#221F1C; --surface-3:#2A2621;
+  --border:#2F2B26; --border-strong:#443E36;
+  --text:#F3EFE8; --muted:#B0A99E; --subtle:#948D82;
+  --accent:#E9A05A; --accent-fg:#121110; --accent-wash:#2A2117; --accent-line:#5C462C;
+  --ok:#6FC894; --ok-wash:#16241C; --bad:#EF8A7C; --bad-wash:#2A1815;
+  --ring:#E9A05A; --skeleton:#26231F; --skeleton-hi:#332E28;
+  --shadow-1:0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2:0 2px 6px rgb(0 0 0 / .45), 0 1px 2px rgb(0 0 0 / .3);
+  --shadow-3:0 12px 32px rgb(0 0 0 / .55), 0 2px 6px rgb(0 0 0 / .4);
 }
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
-  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
-.wrap{max-width:860px;margin:0 auto;padding:0 24px}
+
+/* ─── base ────────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(var(--topbar) + var(--s-4))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--ui);
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;font-synthesis-weight:none}
+h1,h2,h3,h4{margin:0;font-weight:600;line-height:1.2;letter-spacing:-.01em}
+p{margin:0 0 var(--s-3);color:var(--muted);max-width:68ch}
+ul,ol{margin:0 0 var(--s-3);padding-left:var(--s-5);color:var(--muted)}
+li{margin-bottom:var(--s-1)}
+strong{color:var(--text);font-weight:600}
 a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-code{font-family:var(--mono);font-size:.87em;background:var(--code-bg);
-  border:1px solid var(--line);border-radius:5px;padding:.1em .35em;overflow-wrap:anywhere}
-pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
-  padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.2px;line-height:1.55}
-pre code{background:none;border:0;padding:0;font-size:inherit;overflow-wrap:normal}
-h1,h2,h3{line-height:1.25;letter-spacing:-.02em}
-h2{font-size:1.5rem;margin:56px 0 14px;padding-top:8px}
-h3{font-size:1.06rem;margin:30px 0 8px;color:var(--ink)}
-p{color:var(--ink-2);margin:0 0 14px}
-p strong,li strong{color:var(--ink);font-weight:620}
+a:hover{text-decoration:underline;text-underline-offset:2px}
+:where(a,button,input,summary,[tabindex]):focus-visible{
+  outline:2px solid var(--ring);outline-offset:2px;border-radius:var(--r-1)}
+:where(a,button,input,summary,[tabindex]):focus:not(:focus-visible){outline:none}
+svg{flex:none}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.skip{position:absolute;left:var(--s-2);top:-56px;z-index:100;background:var(--accent);
+  color:var(--accent-fg);padding:var(--s-2) var(--s-4);border-radius:var(--r-2);
+  font-weight:600;transition:top .12s ease}
+.skip:focus{top:var(--s-2);text-decoration:none}
 
-header{border-bottom:1px solid var(--line);background:var(--panel);
-  position:sticky;top:0;z-index:20;backdrop-filter:blur(6px)}
-header .wrap{display:flex;align-items:center;gap:18px;height:56px}
-.brand{font-weight:680;letter-spacing:-.02em;color:var(--ink);font-size:.95rem}
-.brand span{color:var(--accent)}
-nav{margin-left:auto;display:flex;gap:18px;font-size:.86rem}
-nav a{color:var(--ink-2)}
-nav a:hover{color:var(--accent)}
-@media(max-width:640px){nav a.hide-sm{display:none}}
+code{font-family:var(--mono);font-size:.86em;font-weight:500;overflow-wrap:anywhere}
+:not(pre) > code{background:var(--surface-2);border:1px solid var(--border);
+  border-radius:var(--r-1);padding:1px 5px;color:var(--text)}
+pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.6;
+  overflow-x:auto;padding:var(--s-4);color:var(--text)}
+pre code{overflow-wrap:normal}
+.tok-c{color:var(--subtle)}
+.tok-a{color:var(--accent)}
+.tok-add{color:var(--ok)}
+.tok-del{color:var(--bad)}
 
-.hero{padding:64px 0 8px}
-.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.13em;
-  text-transform:uppercase;color:var(--accent);margin-bottom:16px}
-.hero h1{font-size:clamp(2rem,5.2vw,3rem);margin:0 0 18px;max-width:16ch}
-.lede{font-size:1.12rem;color:var(--ink-2);max-width:60ch;margin-bottom:26px}
-.cta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
-.btn{display:inline-block;padding:9px 17px;border-radius:8px;font-size:.9rem;
-  font-weight:560;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
-.btn:hover{text-decoration:none;border-color:var(--accent);color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn.primary:hover{opacity:.9;color:#fff}
+/* ─── shell ───────────────────────────────────────────────────────────── */
+.topbar{position:sticky;top:0;z-index:40;height:var(--topbar);background:var(--surface);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;
+  gap:var(--s-4);padding:0 var(--s-4)}
+.mark{display:flex;align-items:center;gap:var(--s-2);font-weight:700;letter-spacing:-.02em;
+  color:var(--text);font-size:14px}
+.mark:hover{text-decoration:none}
+.mark .glyph{width:24px;height:24px;border-radius:var(--r-2);background:var(--accent);
+  color:var(--accent-fg);display:grid;place-items:center}
+.pill{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.04em;
+  padding:2px var(--s-2);border-radius:var(--r-full);border:1px solid var(--border-strong);
+  color:var(--subtle);white-space:nowrap}
+.topbar-links{display:flex;gap:var(--s-1);margin-left:auto;align-items:center}
+.tlink{padding:var(--s-1) var(--s-3);border-radius:var(--r-2);color:var(--muted);
+  font-weight:500;font-size:13px;transition:background .12s,color .12s}
+.tlink:hover{background:var(--surface-2);color:var(--text);text-decoration:none}
+.tlink:active{background:var(--surface-3)}
+@media(max-width:940px){.tlink[data-optional]{display:none}}
+@media(max-width:430px){.topbar .pill{display:none}}
+#nav-toggle{display:none}
+@media(max-width:940px){#nav-toggle{display:inline-flex}}
+.mobilenav{position:sticky;top:var(--topbar);z-index:39;background:var(--surface);
+  border-bottom:1px solid var(--border);padding:var(--s-2);box-shadow:var(--shadow-2)}
+.mobilenav[hidden]{display:none}
+.mobilenav ul{list-style:none;margin:0;padding:0;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--s-1)}
+.mobilenav a{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-3);
+  border-radius:var(--r-2);color:var(--muted);font-size:13px;font-weight:500}
+.mobilenav a:hover{background:var(--surface-2);color:var(--text);text-decoration:none}
+.mobilenav a:active{background:var(--surface-3)}
 
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
-  gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;
-  overflow:hidden;margin:36px 0 8px}
-.stat{background:var(--panel);padding:15px 17px}
-.stat b{display:block;font-size:1.32rem;letter-spacing:-.02em}
-.stat span{font-size:.76rem;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em}
+.layout{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);
+  max-width:1320px;margin:0 auto;gap:0}
+@media(max-width:940px){.layout{grid-template-columns:minmax(0,1fr)}}
 
-figure{margin:26px 0}
+.rail{position:sticky;top:var(--topbar);align-self:start;height:calc(100dvh - var(--topbar));
+  overflow-y:auto;border-right:1px solid var(--border);padding:var(--s-5) var(--s-3);
+  scrollbar-width:thin}
+@media(max-width:940px){.rail{display:none}}
+.rail-group + .rail-group{margin-top:var(--s-5)}
+.rail-title{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--subtle);padding:0 var(--s-3) var(--s-2)}
+.rail a{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-1) var(--s-3);
+  border-radius:var(--r-2);color:var(--muted);font-size:13px;font-weight:500;
+  border-left:2px solid transparent;transition:background .12s,color .12s}
+.rail a:hover{background:var(--surface-2);color:var(--text);text-decoration:none}
+.rail a:active{background:var(--surface-3)}
+.rail a[aria-current="true"]{background:var(--accent-wash);color:var(--accent);
+  border-left-color:var(--accent);font-weight:600}
+
+main{min-width:0;padding:var(--s-8) var(--s-6) var(--s-16)}
+@media(max-width:600px){main{padding:var(--s-6) var(--s-4) var(--s-12)}}
+section{scroll-margin-top:calc(var(--topbar) + var(--s-4))}
+section + section{margin-top:var(--s-12);padding-top:var(--s-8);border-top:1px solid var(--border)}
+.sec-head{display:flex;align-items:baseline;gap:var(--s-3);margin-bottom:var(--s-2)}
+.sec-num{font-family:var(--display);font-size:20px;color:var(--accent);line-height:1;
+  font-style:italic}
+.sec-head h2{font-size:21px}
+.sec-sub{color:var(--subtle);font-size:13px;margin:0 0 var(--s-5);max-width:74ch}
+
+/* ─── hero (asymmetric split) ─────────────────────────────────────────── */
+.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);
+  gap:var(--s-8);align-items:start;margin-bottom:var(--s-10)}
+@media(max-width:860px){.hero{grid-template-columns:minmax(0,1fr);gap:var(--s-6)}}
+.kicker{display:inline-flex;align-items:center;gap:var(--s-2);font-family:var(--mono);
+  font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:var(--s-4)}
+.hero h1{font-family:var(--display);font-weight:400;font-size:clamp(34px,4.4vw,50px);
+  line-height:1.02;letter-spacing:-.015em;margin-bottom:var(--s-4)}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero-lede{font-size:15px;line-height:1.6;color:var(--muted);margin-bottom:var(--s-5)}
+.actions{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+
+/* ─── buttons ─────────────────────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s-2);
+  height:32px;padding:0 var(--s-3);border-radius:var(--r-2);border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--text);font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s,color .12s;
+  box-shadow:var(--shadow-1)}
+.btn:hover:not(:disabled){background:var(--surface-2);border-color:var(--border-strong)}
+.btn:active:not(:disabled){background:var(--surface-3);box-shadow:none;transform:translateY(.5px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn[aria-busy="true"]{cursor:progress;color:var(--subtle)}
+.btn[data-state="error"]{border-color:var(--bad);color:var(--bad);background:var(--bad-wash)}
+.btn[data-state="done"]{border-color:var(--ok);color:var(--ok);background:var(--ok-wash)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn-primary:hover:not(:disabled){background:var(--accent);filter:brightness(1.08);
+  border-color:var(--accent)}
+.btn-primary:active:not(:disabled){filter:brightness(.94);background:var(--accent)}
+.btn-sm{height:26px;padding:0 var(--s-2);font-size:12px;font-weight:500}
+.btn-icon{width:32px;padding:0}
+.btn-icon.btn-sm{width:26px}
+.spinner{width:13px;height:13px;border:1.6px solid currentColor;border-top-color:transparent;
+  border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── panels, tables, definition rows ─────────────────────────────────── */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-3);
+  overflow:hidden;box-shadow:var(--shadow-1)}
+.panel-head{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-3);
+  border-bottom:1px solid var(--border);background:var(--surface-2);min-height:36px}
+.panel-title{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--muted);
+  letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.panel-head .right{margin-left:auto;display:flex;gap:var(--s-1);align-items:center}
+.panel-body{padding:var(--s-4)}
+
+dl.spec{margin:0;display:grid;grid-template-columns:auto 1fr}
+dl.spec dt{padding:var(--s-2) var(--s-3);font-size:11.5px;font-weight:600;color:var(--subtle);
+  border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.05em;
+  white-space:nowrap}
+dl.spec dd{margin:0;padding:var(--s-2) var(--s-3);font-family:var(--mono);font-size:12px;
+  color:var(--text);border-bottom:1px solid var(--border);text-align:right;
+  overflow:hidden;text-overflow:ellipsis}
+dl.spec > :nth-last-child(-n+2){border-bottom:0}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r-3);
+  background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:520px}
+caption{text-align:left;padding:var(--s-2) var(--s-3);font-size:11.5px;color:var(--subtle);
+  border-bottom:1px solid var(--border);background:var(--surface-2);font-weight:600;
+  letter-spacing:.04em;text-transform:uppercase}
+th{text-align:left;padding:var(--s-2) var(--s-3);font-size:11px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--subtle);
+  border-bottom:1px solid var(--border);white-space:nowrap;background:var(--surface)}
+td{padding:var(--s-2) var(--s-3);border-bottom:1px solid var(--border);
+  color:var(--muted);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--surface-2)}
+td.nowrap{white-space:nowrap}
+
+/* ─── tool explorer (master / detail) ─────────────────────────────────── */
+.explorer{display:grid;grid-template-columns:minmax(0,270px) minmax(0,1fr);
+  border:1px solid var(--border);border-radius:var(--r-3);overflow:hidden;
+  background:var(--surface);min-height:376px}
+@media(max-width:760px){.explorer{grid-template-columns:minmax(0,1fr)}
+  .explorer .detail{border-left:0;border-top:1px solid var(--border)}}
+.master{border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
+.filterbar{padding:var(--s-2);border-bottom:1px solid var(--border);background:var(--surface-2);
+  display:flex;gap:var(--s-2);align-items:center}
+.field{position:relative;flex:1;min-width:0}
+.field > svg{position:absolute;left:var(--s-2);top:50%;transform:translateY(-50%);
+  color:var(--subtle);pointer-events:none}
+input[type="search"]{width:100%;height:28px;padding:0 var(--s-2) 0 28px;font:inherit;
+  font-size:12.5px;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:var(--r-2);transition:border-color .12s,box-shadow .12s;-webkit-appearance:none}
+input[type="search"]::placeholder{color:var(--subtle)}
+input[type="search"]:hover{border-color:var(--subtle)}
+input[type="search"]:focus-visible{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-wash)}
+input[type="search"][aria-invalid="true"]{border-color:var(--bad);
+  box-shadow:0 0 0 3px var(--bad-wash)}
+.toollist{list-style:none;margin:0;padding:var(--s-1);overflow-y:auto;flex:1;max-height:340px}
+.toollist li{margin:0}
+.toolopt{display:flex;align-items:center;gap:var(--s-2);width:100%;padding:var(--s-2);
+  border:0;background:none;border-radius:var(--r-2);font:inherit;font-size:12.5px;
+  color:var(--muted);cursor:pointer;text-align:left;transition:background .1s,color .1s}
+.toolopt .nm{font-family:var(--mono);font-size:11.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.toolopt:hover{background:var(--surface-2);color:var(--text)}
+.toolopt:active{background:var(--surface-3)}
+.toolopt[aria-selected="true"]{background:var(--accent-wash);color:var(--accent);font-weight:600}
+.toolopt[aria-selected="true"] svg{color:var(--accent)}
+.toolopt svg{color:var(--subtle)}
+.detail{padding:var(--s-4);min-width:0;display:flex;flex-direction:column}
+.detail h3{font-family:var(--mono);font-size:14px;font-weight:700;margin-bottom:var(--s-1);
+  overflow-wrap:anywhere}
+.detail .sig{font-family:var(--mono);font-size:11.5px;color:var(--subtle);
+  margin-bottom:var(--s-3);overflow-wrap:anywhere}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;padding:2px var(--s-2);
+  border-radius:var(--r-full);border:1px solid var(--accent-line);color:var(--accent);
+  background:var(--accent-wash)}
+.badge.ok{color:var(--ok);border-color:var(--ok);background:var(--ok-wash)}
+.badge.bad{color:var(--bad);border-color:var(--bad);background:var(--bad-wash)}
+.empty{margin:auto;text-align:center;padding:var(--s-8) var(--s-4);max-width:34ch}
+.empty svg{color:var(--subtle);margin-bottom:var(--s-3)}
+.empty p{margin:0 auto;font-size:13px;color:var(--subtle)}
+.empty .t{color:var(--text);font-weight:600;font-size:13px;margin-bottom:var(--s-1)}
+
+/* ─── skeleton ────────────────────────────────────────────────────────── */
+.skel{background:linear-gradient(90deg,var(--skeleton) 0%,var(--skeleton-hi) 50%,var(--skeleton) 100%);
+  background-size:200% 100%;animation:shimmer 1.2s ease-in-out infinite;
+  border-radius:var(--r-1);height:10px}
+@keyframes shimmer{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none;background:var(--skeleton)}}
+
+/* ─── run replay ──────────────────────────────────────────────────────── */
+.replay{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,300px);gap:var(--s-4)}
+@media(max-width:860px){.replay{grid-template-columns:minmax(0,1fr)}}
+.steps{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12px}
+.steps li{display:grid;grid-template-columns:22px 74px 16px minmax(0,1fr);gap:var(--s-2);
+  align-items:baseline;padding:var(--s-2) var(--s-3);border-bottom:1px solid var(--border);
+  transition:background .18s}
+.steps li:last-child{border-bottom:0}
+.steps li[data-on="0"] .st{visibility:hidden}
+.steps li[data-on="0"] .ph{color:var(--subtle);font-weight:500}
+.steps li[data-on="0"] .tl,
+.steps li[data-on="0"] .tl *{color:var(--subtle);font-weight:400}
+.steps li[data-cur="1"]{background:var(--accent-wash)}
+.steps .i{color:var(--subtle);text-align:right}
+.steps .ph{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);
+  font-weight:700}
+.steps .st{color:var(--ok)}
+.steps .tl{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steps .tl .arg{color:var(--subtle)}
+.steps .tl .v-pass{color:var(--ok);font-weight:700}
+.steps .tl .v-fail{color:var(--bad);font-weight:700}
+.controls{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap;
+  padding:var(--s-2) var(--s-3);border-top:1px solid var(--border);background:var(--surface-2)}
+.controls .hint{margin-left:auto;font-size:11.5px;color:var(--subtle);font-family:var(--mono)}
+.alert{display:flex;gap:var(--s-2);padding:var(--s-3);border-radius:var(--r-2);
+  border:1px solid var(--bad);background:var(--bad-wash);color:var(--bad);font-size:12.5px;
+  align-items:flex-start;margin:var(--s-3) 0 0}
+.alert svg{margin-top:1px}
+.alert strong{color:var(--bad)}
+.toggle{display:flex;align-items:center;gap:var(--s-2);font-size:12px;color:var(--muted);
+  cursor:pointer;user-select:none}
+.toggle input{position:absolute;opacity:0;width:1px;height:1px}
+.track{width:30px;height:17px;border-radius:var(--r-full);background:var(--surface-3);
+  border:1px solid var(--border-strong);position:relative;transition:background .14s,border-color .14s}
+.track::after{content:"";position:absolute;top:1.5px;left:2px;width:11px;height:11px;
+  border-radius:50%;background:var(--subtle);transition:transform .14s,background .14s}
+.toggle input:checked + .track{background:var(--accent);border-color:var(--accent)}
+.toggle input:checked + .track::after{transform:translateX(12px);background:var(--accent-fg)}
+.toggle input:focus-visible + .track{outline:2px solid var(--ring);outline-offset:2px}
+.toggle:hover .track{border-color:var(--subtle)}
+
+/* ─── tabs ────────────────────────────────────────────────────────────── */
+[role="tablist"]{display:flex;gap:var(--s-1);padding:var(--s-1);background:var(--surface-2);
+  border-bottom:1px solid var(--border);overflow-x:auto}
+[role="tab"]{border:0;background:none;font:inherit;font-size:12.5px;font-weight:600;
+  color:var(--muted);padding:var(--s-1) var(--s-3);border-radius:var(--r-2);cursor:pointer;
+  white-space:nowrap;transition:background .12s,color .12s}
+[role="tab"]:hover{background:var(--surface-3);color:var(--text)}
+[role="tab"][aria-selected="true"]{background:var(--surface);color:var(--text);
+  box-shadow:var(--shadow-1)}
+[role="tabpanel"]{background:var(--surface)}
+
+/* ─── diagram ─────────────────────────────────────────────────────────── */
+figure{margin:0}
 figure svg{width:100%;height:auto;display:block}
-figcaption{font-size:.83rem;color:var(--ink-3);margin-top:10px}
+figcaption{font-size:12px;color:var(--subtle);padding:var(--s-2) var(--s-3);
+  border-top:1px solid var(--border);background:var(--surface-2)}
 
-table{width:100%;border-collapse:collapse;font-size:.9rem;margin:18px 0}
-th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:600}
-td:first-child{white-space:nowrap}
-.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-
-.callout{background:var(--accent-soft);border:1px solid var(--line);
-  border-left:3px solid var(--accent);border-radius:0 9px 9px 0;padding:14px 18px;margin:22px 0}
-.callout p{margin:0;color:var(--ink-2);font-size:.94rem}
-
-.trace{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;
-  padding:6px 0;font-family:var(--mono);font-size:12.8px;margin:20px 0;overflow-x:auto}
-.trace .row{display:grid;grid-template-columns:30px 88px 26px 1fr;gap:10px;
-  padding:5px 16px;align-items:baseline;min-width:560px}
-.trace .row:hover{background:var(--panel-2)}
-.n{color:var(--ink-3);text-align:right}
-.ph{color:var(--accent);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em}
-.ok{color:var(--ok)}
-.tool{color:var(--ink)}
-.arg{color:var(--ink-3)}
-.pass{color:var(--ok);font-weight:600}
-.fail{color:var(--bad);font-weight:600}
-
-.diff .add{color:var(--ok)}
-.diff .del{color:var(--bad)}
-.diff .meta{color:var(--ink-3)}
-
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:20px 0}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
-.card h4{margin:0 0 6px;font-size:.95rem}
-.card p{margin:0;font-size:.9rem}
-
-ul{color:var(--ink-2);padding-left:20px}
-li{margin-bottom:7px}
-
-footer{margin-top:80px;border-top:1px solid var(--line);background:var(--panel)}
-footer .wrap{padding:26px 24px;font-size:.85rem;color:var(--ink-3);
-  display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between}
+/* ─── misc ────────────────────────────────────────────────────────────── */
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:var(--s-5);
+  align-items:start}
+.split.stretch{align-items:stretch}
+.split.stretch > figure{display:flex;flex-direction:column}
+.split.stretch > figure > div{flex:1;display:flex;align-items:center}
+.split.stretch > figure svg{width:100%}
+@media(max-width:860px){.split{grid-template-columns:minmax(0,1fr)}}
+.stack{display:flex;flex-direction:column;gap:var(--s-4)}
+.note{border-left:2px solid var(--accent);padding:var(--s-1) 0 var(--s-1) var(--s-4);
+  margin:var(--s-4) 0}
+.note p{margin:0;font-size:13px}
+footer{border-top:1px solid var(--border);background:var(--surface);
+  padding:var(--s-5) var(--s-6);display:flex;flex-wrap:wrap;gap:var(--s-3);
+  justify-content:space-between;font-size:12.5px;color:var(--subtle)}
+footer a{color:var(--muted)}
 </style>
 </head>
 <body>
+<a class="skip" href="#content">Skip to content</a>
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+ <defs>
+  <g id="i" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></g>
+ </defs>
+ <symbol id="ic-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+ <symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+ <symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+ <symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+ <symbol id="ic-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+ <symbol id="ic-step" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></symbol>
+ <symbol id="ic-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+ <symbol id="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+ <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+ <symbol id="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+ <symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+ <symbol id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+ <symbol id="ic-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></symbol>
+ <symbol id="ic-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+ <symbol id="ic-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+ <symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></symbol>
+ <symbol id="ic-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></symbol>
+ <symbol id="ic-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4.1 12 6"/><path d="m5.1 8-2.9-.8"/><path d="m6 12-1.9 2"/><path d="M7.2 2.2 8 5.1"/><path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z"/></symbol>
+ <symbol id="ic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+ <symbol id="ic-github" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.73.5.9 5.48.9 11.9c0 5.05 3.29 9.33 7.86 10.84.57.11.78-.25.78-.56v-2.1c-3.2.71-3.87-1.4-3.87-1.4-.53-1.36-1.29-1.72-1.29-1.72-1.05-.74.08-.72.08-.72 1.16.08 1.77 1.22 1.77 1.22 1.03 1.81 2.7 1.29 3.36.99.1-.77.4-1.29.73-1.59-2.56-.3-5.25-1.31-5.25-5.83 0-1.29.45-2.34 1.19-3.17-.12-.3-.51-1.51.11-3.14 0 0 .97-.32 3.18 1.21a10.7 10.7 0 0 1 5.79 0c2.2-1.53 3.17-1.21 3.17-1.21.63 1.63.23 2.84.12 3.14.74.83 1.19 1.88 1.19 3.17 0 4.53-2.7 5.53-5.27 5.82.41.37.78 1.09.78 2.2v3.26c0 .31.2.68.79.56A11.42 11.42 0 0 0 23.1 11.9C23.1 5.48 18.27.5 12 .5Z"/></symbol>
+</svg>
 
-<header>
-  <div class="wrap">
-    <div class="brand">loop<span>dbg</span></div>
-    <nav>
-      <a href="#loop">Loop</a>
-      <a href="#tools">Tools</a>
-      <a href="#run" class="hide-sm">Example run</a>
-      <a href="#cluster" class="hide-sm">Cluster</a>
-      <a href="https://github.com/robertguozt/Loop-Debugger">GitHub</a>
-    </nav>
-  </div>
+<header class="topbar">
+  <a class="mark" href="#top"><span class="glyph"><svg width="13" height="13" aria-hidden="true"><use href="#ic-terminal"/></svg></span>loopdbg</a>
+  <span class="pill">v1.0.0</span>
+  <nav class="topbar-links" aria-label="Primary">
+    <a class="tlink" href="#tools" data-optional>Tools</a>
+    <a class="tlink" href="#replay" data-optional>Run replay</a>
+    <a class="tlink" href="#install" data-optional>Install</a>
+    <a class="tlink" href="https://github.com/robertguozt/Loop-Debugger" rel="noopener">
+      <svg width="14" height="14" aria-hidden="true" style="vertical-align:-2px"><use href="#ic-github"/></svg>
+      <span class="sr-only">Source on </span>GitHub</a>
+    <button class="btn btn-icon btn-sm" id="nav-toggle" type="button" aria-expanded="false"
+            aria-controls="mobilenav" aria-label="Open section navigation">
+      <svg width="14" height="14" aria-hidden="true"><use href="#ic-menu"/></svg>
+    </button>
+    <button class="btn btn-icon btn-sm" id="theme" type="button" aria-pressed="false"
+            aria-label="Switch to dark theme" title="Switch theme">
+      <svg width="14" height="14" aria-hidden="true" id="theme-ic"><use href="#ic-moon"/></svg>
+    </button>
+  </nav>
 </header>
 
-<div class="wrap">
+<nav class="mobilenav" id="mobilenav" aria-label="Sections" hidden>
+  <ul>
+    <li><a href="#overview"><svg width="14" height="14" aria-hidden="true"><use href="#ic-list"/></svg>Overview</a></li>
+    <li><a href="#architecture"><svg width="14" height="14" aria-hidden="true"><use href="#ic-layers"/></svg>Architecture</a></li>
+    <li><a href="#tools"><svg width="14" height="14" aria-hidden="true"><use href="#ic-wrench"/></svg>Tool reference</a></li>
+    <li><a href="#replay"><svg width="14" height="14" aria-hidden="true"><use href="#ic-play"/></svg>Run replay</a></li>
+    <li><a href="#cluster"><svg width="14" height="14" aria-hidden="true"><use href="#ic-branch"/></svg>Cluster</a></li>
+    <li><a href="#install"><svg width="14" height="14" aria-hidden="true"><use href="#ic-terminal"/></svg>Install</a></li>
+    <li><a href="#guardrails"><svg width="14" height="14" aria-hidden="true"><use href="#ic-shield"/></svg>Guard rails</a></li>
+  </ul>
+</nav>
 
-<section class="hero">
-  <div class="eyebrow">Loop engineering &middot; Anthropic SDK &middot; Kubernetes</div>
-  <h1>A debugging loop that runs your tests, not its imagination.</h1>
-  <p class="lede">
-    Point it at a failing pytest target. It spawns an isolated pod, reproduces the failure,
-    reads the frames in the traceback, applies one minimal patch, and re-runs the suite.
-    It cannot claim a fix it has not watched pass. The interesting part is not the loop,
-    which is forty lines. It is the harness around it.
-  </p>
-  <div class="cta">
-    <a class="btn primary" href="https://github.com/robertguozt/Loop-Debugger">View on GitHub</a>
-    <a class="btn" href="#quickstart">Run the example</a>
+<div class="layout" id="top">
+<aside class="rail" aria-label="Section navigation">
+  <div class="rail-group">
+    <p class="rail-title" id="rail-guide">Guide</p>
+    <nav aria-labelledby="rail-guide">
+      <a href="#overview"><svg width="14" height="14" aria-hidden="true"><use href="#ic-list"/></svg>Overview</a>
+      <a href="#architecture"><svg width="14" height="14" aria-hidden="true"><use href="#ic-layers"/></svg>Architecture</a>
+      <a href="#tools"><svg width="14" height="14" aria-hidden="true"><use href="#ic-wrench"/></svg>Tool reference</a>
+      <a href="#replay"><svg width="14" height="14" aria-hidden="true"><use href="#ic-play"/></svg>Run replay</a>
+    </nav>
+  </div>
+  <div class="rail-group">
+    <p class="rail-title" id="rail-ops">Operations</p>
+    <nav aria-labelledby="rail-ops">
+      <a href="#cluster"><svg width="14" height="14" aria-hidden="true"><use href="#ic-branch"/></svg>Cluster</a>
+      <a href="#install"><svg width="14" height="14" aria-hidden="true"><use href="#ic-terminal"/></svg>Install</a>
+      <a href="#guardrails"><svg width="14" height="14" aria-hidden="true"><use href="#ic-shield"/></svg>Guard rails</a>
+    </nav>
+  </div>
+</aside>
+
+<main id="content">
+<section id="overview" aria-labelledby="h-overview">
+  <div class="hero">
+    <div>
+      <p class="kicker"><svg width="13" height="13" aria-hidden="true"><use href="#ic-branch"/></svg>Loop engineering &middot; Anthropic SDK &middot; Kubernetes</p>
+      <h1 id="h-overview">A debugging loop that runs your tests, <em>not its imagination</em>.</h1>
+      <p class="hero-lede">
+        <code>loopdbg</code> takes a failing pytest target, spawns an ephemeral pod, reproduces the
+        failure, reads the frames in the traceback, applies one minimal patch, and re-runs the suite.
+        It cannot report a fix it has not watched pass. The loop is forty lines. The harness around
+        it is the part that decides whether any of this works.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#install">
+          <svg width="14" height="14" aria-hidden="true"><use href="#ic-terminal"/></svg>Install</a>
+        <a class="btn" href="https://github.com/robertguozt/Loop-Debugger" rel="noopener">
+          <svg width="14" height="14" aria-hidden="true"><use href="#ic-github"/></svg>Read the source</a>
+        <a class="btn" href="#replay">
+          <svg width="14" height="14" aria-hidden="true"><use href="#ic-play"/></svg>Replay a run</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <svg width="13" height="13" aria-hidden="true" style="color:var(--subtle)"><use href="#ic-file"/></svg>
+        <span class="panel-title">loopdbg --target tests --revert</span>
+        <span class="right"><span class="badge ok"><svg width="10" height="10" aria-hidden="true"><use href="#ic-check"/></svg>resolved</span></span>
+      </div>
+      <dl class="spec">
+        <dt>Steps used</dt><dd>8 / 30</dd>
+        <dt>Tools called</dt><dd>7</dd>
+        <dt>Patches applied</dt><dd>1</dd>
+        <dt>Files changed</dt><dd>calc/stats.py</dd>
+        <dt>Suite before</dt><dd style="color:var(--bad)">2 failed, 6 passed</dd>
+        <dt>Suite after</dt><dd style="color:var(--ok)">8 passed</dd>
+        <dt>Sandbox</dt><dd>pod deleted</dd>
+      </dl>
+    </div>
   </div>
 
-  <div class="stats">
-    <div class="stat"><b>8</b><span>tools</span></div>
-    <div class="stat"><b>4</b><span>phases</span></div>
-    <div class="stat"><b>31</b><span>tests</span></div>
-    <div class="stat"><b>0</b><span>mypy strict errors</span></div>
+  <div class="split">
+    <div>
+      <h2 style="font-size:15px;margin-bottom:var(--s-2)">Four phases, enforced by evidence</h2>
+      <p>
+        The system prompt splits the work and the agent names its phase before each call. Two rules
+        carry the weight. It may not state a root cause before a failure appears in tool output, and
+        it may not claim success before a passing run appears in tool output. After three patches
+        with no passing run, the loop injects a message telling it to stop editing and widen the
+        search, which is where these agents normally derail.
+      </p>
+      <div class="tablewrap">
+        <table>
+          <caption>Phase transitions</caption>
+          <thead><tr><th scope="col">Phase</th><th scope="col">Entered by</th><th scope="col">Obligation</th></tr></thead>
+          <tbody>
+            <tr><td class="nowrap"><strong>reproduce</strong></td><td class="nowrap">start of run</td><td>Capture a real traceback and exit code.</td></tr>
+            <tr><td class="nowrap"><strong>localize</strong></td><td class="nowrap">a failing suite</td><td>Read the named frames before editing.</td></tr>
+            <tr><td class="nowrap"><strong>patch</strong></td><td class="nowrap">re-reading after a fix</td><td>One defect, one atomic edit.</td></tr>
+            <tr><td class="nowrap"><strong>verify</strong></td><td class="nowrap">a patch or a green run</td><td>Re-run the target, then the full suite.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span class="panel-title">At a glance</span></div>
+      <dl class="spec">
+        <dt>Python</dt><dd>3.11+</dd>
+        <dt>Model default</dt><dd>claude-sonnet-4-5</dd>
+        <dt>Tools exposed</dt><dd>8</dd>
+        <dt>Step budget</dt><dd>30</dd>
+        <dt>Sandbox backends</dt><dd>k8s, local</dd>
+        <dt>Test suite</dt><dd>31 passing</dd>
+        <dt>Type checking</dt><dd>mypy --strict</dd>
+        <dt>License</dt><dd>MIT</dd>
+      </dl>
+    </div>
   </div>
 </section>
 
-<h2 id="loop">How the loop works</h2>
-<p>
-  <code>run_debug_cycle</code> posts the transcript to the Messages API, pulls
-  <code>tool_use</code> blocks out of the response, runs the matching Python function, and
-  returns <code>tool_result</code> blocks in the next user turn. That repeats until the model
-  calls <code>report_resolution</code> or the step budget runs out.
-</p>
+<section id="architecture" aria-labelledby="h-arch">
+  <div class="sec-head"><span class="sec-num">01</span><h2 id="h-arch">Architecture</h2></div>
+  <p class="sec-sub">
+    <code>run_debug_cycle</code> posts the transcript to the Messages API, pulls <code>tool_use</code>
+    blocks from the response, runs the matching Python function, and returns <code>tool_result</code>
+    blocks in the next user turn.
+  </p>
 
-<figure>
-<svg viewBox="0 0 800 272" role="img" aria-labelledby="loopTitle loopDesc">
-  <title id="loopTitle">The tool-use loop</title>
-  <desc id="loopDesc">A counter-clockwise cycle: the message transcript goes to the Messages API, which returns tool_use blocks; ToolBox.dispatch executes them against the repository and the sandbox pod; the output returns as tool_result blocks and rejoins the transcript. The cycle repeats until report_resolution is called or max_steps is reached.</desc>
-  <defs>
-    <marker id="ar" markerWidth="9" markerHeight="9" refX="8.2" refY="4.5" orient="auto">
-      <path d="M0,0 L9,4.5 L0,9 z" fill="var(--ink-3)"/>
-    </marker>
-  </defs>
+  <div class="split stretch">
+    <figure class="panel">
+      <div class="panel-head"><span class="panel-title">loopdbg/agent.py &rarr; run_debug_cycle</span></div>
+      <div style="padding:var(--s-4) var(--s-3) var(--s-2)">
+      <svg viewBox="0 0 800 250" role="img" aria-labelledby="dg-t dg-d">
+        <title id="dg-t">The tool-use loop</title>
+        <desc id="dg-d">A counter-clockwise cycle. The compacted message transcript goes to the Messages API, which returns tool_use blocks. ToolBox.dispatch executes them against the repository and the sandbox pod. Output returns as tool_result blocks and rejoins the transcript. The cycle repeats until report_resolution is called or max_steps is reached.</desc>
+        <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8.2" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="var(--border-strong)"/></marker></defs>
+        <g fill="none" stroke="var(--border-strong)" stroke-width="1.5">
+          <path d="M232,66 L318,66" marker-end="url(#ar)"/>
+          <path d="M478,66 L564,66" marker-end="url(#ar)"/>
+          <path d="M652,98 L652,150" marker-end="url(#ar)"/>
+          <path d="M564,182 L486,182" marker-end="url(#ar)"/>
+          <path d="M314,182 L236,182" marker-end="url(#ar)"/>
+          <path d="M140,150 L140,98" marker-end="url(#ar)"/>
+        </g>
+        <g font-family="var(--mono)" font-size="12">
+          <rect x="52" y="40" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="142" y="62" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">messages[]</text>
+          <text x="142" y="79" text-anchor="middle" fill="var(--subtle)" font-size="10.5">compacted transcript</text>
 
-  <g fill="none" stroke="var(--ink-3)" stroke-width="1.4">
-    <path d="M228,72 L316,72" marker-end="url(#ar)"/>
-    <path d="M476,72 L564,72" marker-end="url(#ar)"/>
-    <path d="M652,104 L652,158" marker-end="url(#ar)"/>
-    <path d="M564,190 L484,190" marker-end="url(#ar)"/>
-    <path d="M316,190 L236,190" marker-end="url(#ar)"/>
-    <path d="M140,158 L140,104" marker-end="url(#ar)"/>
-  </g>
+          <rect x="318" y="40" width="160" height="52" rx="7" fill="var(--accent-wash)" stroke="var(--accent-line)"/>
+          <text x="398" y="62" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">Messages API</text>
+          <text x="398" y="79" text-anchor="middle" fill="var(--subtle)" font-size="10.5">tools=TOOL_SCHEMAS</text>
 
-  <g font-family="var(--mono)" font-size="12">
-    <rect x="52" y="44" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="140" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">messages[]</text>
-    <text x="140" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">compacted transcript</text>
+          <rect x="564" y="40" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="654" y="62" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">tool_use blocks</text>
+          <text x="654" y="79" text-anchor="middle" fill="var(--subtle)" font-size="10.5">name + input</text>
 
-    <rect x="316" y="44" width="160" height="56" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
-    <text x="396" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">Messages API</text>
-    <text x="396" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">tools=TOOL_SCHEMAS</text>
+          <rect x="564" y="156" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="654" y="178" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">ToolBox.dispatch</text>
+          <text x="654" y="195" text-anchor="middle" fill="var(--subtle)" font-size="10.5">typed Python impl</text>
 
-    <rect x="564" y="44" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="652" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">tool_use blocks</text>
-    <text x="652" y="86" text-anchor="middle" fill="var(--ink-3)" font-size="11">name + input</text>
+          <rect x="318" y="156" width="160" height="52" rx="7" fill="var(--surface-3)" stroke="var(--border)"/>
+          <text x="398" y="178" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">repo + sandbox pod</text>
+          <text x="398" y="195" text-anchor="middle" fill="var(--subtle)" font-size="10.5">read / patch / pytest</text>
 
-    <rect x="564" y="162" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="652" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">ToolBox.dispatch</text>
-    <text x="652" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">typed Python impl</text>
+          <rect x="52" y="156" width="180" height="52" rx="7" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="142" y="178" text-anchor="middle" fill="var(--text)" font-size="12" font-weight="500">tool_result blocks</text>
+          <text x="142" y="195" text-anchor="middle" fill="var(--subtle)" font-size="10.5">stdout + verdict</text>
 
-    <rect x="316" y="162" width="160" height="56" rx="9" fill="var(--panel-2)" stroke="var(--line)"/>
-    <text x="396" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">repo + sandbox pod</text>
-    <text x="396" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">read / patch / pytest</text>
+          <text x="398" y="238" text-anchor="middle" fill="var(--subtle)" font-size="10.5">repeat until report_resolution, or max_steps</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Superseded tool output collapses to a stub before the next turn, so a twenty-step run does not carry twenty pytest transcripts.</figcaption>
+    </figure>
 
-    <rect x="52" y="162" width="176" height="56" rx="9" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="140" y="186" text-anchor="middle" fill="var(--ink)" font-size="12.5">tool_result blocks</text>
-    <text x="140" y="204" text-anchor="middle" fill="var(--ink-3)" font-size="11">stdout + verdict</text>
+    <div class="stack">
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Module map</span></div>
+        <dl class="spec">
+          <dt>agent.py</dt><dd>loop, phases</dd>
+          <dt>tools.py</dt><dd>schemas, impls</dd>
+          <dt>executors.py</dt><dd>pods, exec</dd>
+          <dt>config.py</dt><dd>tokens, guards</dd>
+          <dt>prompts.py</dt><dd>phase contract</dd>
+          <dt>cli.py</dt><dd>entry point</dd>
+        </dl>
+      </div>
+      <div class="note">
+        <p>The four API calls <code>executors.py</code> makes are <code>create_namespaced_pod</code>,
+        <code>read_namespaced_pod</code>, <code>connect_get_namespaced_pod_exec</code> and
+        <code>delete_namespaced_pod</code>. The RBAC Role grants exactly those and stops.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-    <text x="396" y="252" text-anchor="middle" fill="var(--ink-3)" font-size="11">repeat until report_resolution, or max_steps</text>
-  </g>
-</svg>
-<figcaption>One iteration. Superseded tool output is replaced by a stub before the next turn, which keeps a twenty-step run from carrying twenty pytest transcripts.</figcaption>
-</figure>
+<section id="tools" aria-labelledby="h-tools">
+  <div class="sec-head"><span class="sec-num">02</span><h2 id="h-tools">Tool reference</h2></div>
+  <p class="sec-sub">
+    <code>TOOL_SCHEMAS</code> reaches the API verbatim. A tool that raises returns an error
+    <code>tool_result</code> rather than ending the run, so the model reads the failure and adjusts.
+    Select a tool to see its contract.
+  </p>
 
-<h3>The four phases</h3>
-<p>
-  The system prompt splits the work and the agent announces which phase it is in before each
-  call. Two rules do the heavy lifting: it may not name a root cause before a failure appears
-  in tool output, and it may not claim success before a passing run appears in tool output.
-</p>
+  <div class="explorer">
+    <div class="master">
+      <div class="filterbar">
+        <div class="field">
+          <svg width="13" height="13" aria-hidden="true"><use href="#ic-search"/></svg>
+          <label class="sr-only" for="tool-filter">Filter tools by name</label>
+          <input type="search" id="tool-filter" placeholder="Filter tools…" autocomplete="off"
+                 aria-describedby="tool-filter-status">
+        </div>
+      </div>
+      <p id="tool-filter-status" class="sr-only" role="status" aria-live="polite"></p>
+      <ul class="toollist" id="toollist" role="listbox" aria-label="Tools" tabindex="0"
+          aria-activedescendant=""></ul>
+      <p id="tool-empty" class="empty" hidden>
+        <svg width="22" height="22" aria-hidden="true"><use href="#ic-search"/></svg>
+        <span class="t" style="display:block">No tool matches</span>
+        <span style="display:block;color:var(--subtle)">Clear the filter to see all eight.</span>
+      </p>
+    </div>
+    <div class="detail" id="tool-detail" role="region" aria-live="polite" aria-label="Tool detail">
+      <div class="empty">
+        <svg width="24" height="24" aria-hidden="true"><use href="#ic-pointer"/></svg>
+        <p class="t">Nothing selected</p>
+        <p>Pick a tool on the left, or focus the list and use the arrow keys.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-<div class="grid2">
-  <div class="card"><h4>1 &middot; Reproduce</h4><p>Create the sandbox, run the target, capture the traceback and the exit code. No guessing ahead of the evidence.</p></div>
-  <div class="card"><h4>2 &middot; Localize</h4><p>Read the frames named in the traceback. Follow imports and call sites. State the observed value and the expected one.</p></div>
-  <div class="card"><h4>3 &middot; Patch</h4><p>One sentence of root cause, then the smallest edit that fixes it. One defect per patch, and no refactoring.</p></div>
-  <div class="card"><h4>4 &middot; Verify</h4><p>Re-run the target, then the full suite. A still-failing run restarts at phase 1 with the new output as evidence.</p></div>
-</div>
+<section id="replay" aria-labelledby="h-replay">
+  <div class="sec-head"><span class="sec-num">03</span><h2 id="h-replay">Run replay</h2></div>
+  <p class="sec-sub">
+    A recorded run against <code>examples/broken_project</code>, where <code>calc.stats.median</code>
+    returns the upper middle element of an even-sized sample instead of the mean of the central pair.
+    Two of eight tests fail going in.
+  </p>
 
-<div class="callout">
-  <p>After three patches without a passing run, the loop injects a message telling the model to
-  stop editing and widen its search. Stacked patches on a wrong hypothesis are how these agents
-  usually go off the rails.</p>
-</div>
+  <div class="replay">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">transcript &mdash; 8 turns</span>
+        <span class="right"><span class="badge" id="replay-badge">idle</span></span>
+      </div>
+      <div id="replay-surface">
+        <ol class="steps" id="steps">
+          <li data-on="0"><span class="i">1</span><span class="ph">reproduce</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">create_ephemeral_debug_pod <span class="arg">image=python:3.11-slim</span></span></li>
+          <li data-on="0"><span class="i">2</span><span class="ph">reproduce</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">run_test_suite <span class="v-fail">FAIL &mdash; 2 failing, 6 passing</span></span></li>
+          <li data-on="0"><span class="i">3</span><span class="ph">localize</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">search_codebase <span class="arg">/def median/</span></span></li>
+          <li data-on="0"><span class="i">4</span><span class="ph">localize</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">read_file <span class="arg">calc/stats.py:20-34</span></span></li>
+          <li data-on="0"><span class="i">5</span><span class="ph">patch</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">apply_unified_diff_or_patch <span class="arg">calc/stats.py &minus;1/+3</span></span></li>
+          <li data-on="0"><span class="i">6</span><span class="ph">verify</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">run_test_suite <span class="v-pass">PASS &mdash; 8 passed</span></span></li>
+          <li data-on="0"><span class="i">7</span><span class="ph">verify</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">cleanup_pod</span></li>
+          <li data-on="0"><span class="i">8</span><span class="ph">done</span><span class="st"><svg width="11" height="11" aria-hidden="true"><use href="#ic-check"/></svg></span><span class="tl">report_resolution <span class="arg">resolved=true</span></span></li>
+        </ol>
+      </div>
+      <div class="controls">
+        <button class="btn btn-sm" id="rp-play" type="button" aria-describedby="rp-status">
+          <svg width="12" height="12" aria-hidden="true"><use href="#ic-play"/></svg>Play</button>
+        <button class="btn btn-sm" id="rp-step" type="button">
+          <svg width="12" height="12" aria-hidden="true"><use href="#ic-step"/></svg>Step</button>
+        <button class="btn btn-sm" id="rp-reset" type="button" disabled>
+          <svg width="12" height="12" aria-hidden="true"><use href="#ic-reset"/></svg>Reset</button>
+        <label class="toggle" for="rp-fail">
+          <input type="checkbox" id="rp-fail">
+          <span class="track" aria-hidden="true"></span>Simulate API error
+        </label>
+        <span class="hint" id="rp-status" role="status" aria-live="polite">0 / 8</span>
+      </div>
+      <div id="rp-error" hidden>
+        <div class="alert" role="alert">
+          <svg width="15" height="15" aria-hidden="true"><use href="#ic-alert"/></svg>
+          <span><strong>stop_reason: api_error</strong> &mdash; the model call raised on step 3.
+          The sandbox is torn down in the <code>finally</code> block, partial patches are recorded
+          in the report, and <code>--revert</code> restores every touched file.</span>
+        </div>
+      </div>
+    </div>
 
-<h2 id="tools">The tools the model sees</h2>
-<p>
-  <code>TOOL_SCHEMAS</code> in <code>tools.py</code> goes to the API verbatim.
-  <code>ToolBox</code> holds the mutable session state and dispatches each block to a typed
-  implementation. A tool that raises returns an error <code>tool_result</code> rather than
-  killing the run, so the model can read the failure and adjust.
-</p>
+    <div class="stack">
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">diff &mdash; calc/stats.py</span>
+          <span class="right">
+            <button class="btn btn-icon btn-sm" type="button" data-copy="#diff-src"
+                    aria-label="Copy diff to clipboard" title="Copy">
+              <svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg>
+            </button>
+          </span>
+        </div>
+<pre id="diff-src"><code><span class="tok-c">@@ -25,7 +25,9 @@</span>
+     ordered = sorted(values)
+     midpoint = len(ordered) // 2
+<span class="tok-del">-    return ordered[midpoint]</span>
+<span class="tok-add">+    if len(ordered) % 2 == 1:
++        return float(ordered[midpoint])
++    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0</span></code></pre>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">root cause, as reported</span></div>
+        <div class="panel-body">
+          <p style="font-size:12.5px;margin:0">
+            <code>median</code> returned <code>ordered[len(ordered) // 2]</code> for every sample size,
+            so an even-sized sample yielded the upper central value instead of the mean of the two
+            central values.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-<div class="scroll">
-<table>
-  <thead><tr><th>Tool</th><th>Input</th><th>What it does</th></tr></thead>
-  <tbody>
-    <tr><td><code>create_ephemeral_debug_pod</code></td><td>image, code_volume_map</td><td>Spawns the pod, waits for Ready, streams the project in over <code>tar</code>.</td></tr>
-    <tr><td><code>execute_command_in_pod</code></td><td>cmd, timeout_s</td><td>Runs argv through <code>connect_get_namespaced_pod_exec</code>; returns exit code, stdout, stderr.</td></tr>
-    <tr><td><code>run_test_suite</code></td><td>test_target, extra_args</td><td>Re-syncs local edits, runs pytest, prepends a one-line PASS or FAIL verdict.</td></tr>
-    <tr><td><code>read_file</code></td><td>filepath, start_line, end_line</td><td>Line-numbered slice of a source file.</td></tr>
-    <tr><td><code>search_codebase</code></td><td>regex_pattern, file_pattern</td><td><code>file:line:text</code> matches across the repository.</td></tr>
-    <tr><td><code>apply_unified_diff_or_patch</code></td><td>filepath, original_snippet, replacement_snippet</td><td>Exact-match replacement, validated by <code>ast.parse</code> on Python files.</td></tr>
-    <tr><td><code>cleanup_pod</code></td><td>&mdash;</td><td>Deletes the pod. Also runs from a <code>finally</code> block.</td></tr>
-    <tr><td><code>report_resolution</code></td><td>resolved, root_cause, fix_summary, verification</td><td>The terminal tool. Nothing else ends the loop.</td></tr>
-  </tbody>
-</table>
-</div>
+<section id="cluster" aria-labelledby="h-cluster">
+  <div class="sec-head"><span class="sec-num">04</span><h2 id="h-cluster">Cluster</h2></div>
+  <p class="sec-sub">
+    <code>KubernetesExecutor</code> drives <code>CoreV1Api</code> directly. Commands run through
+    <code>stream(api.connect_get_namespaced_pod_exec, …)</code> with <code>_preload_content=False</code>,
+    the exit status comes off the error channel, and source arrives as a tar stream on the exec stdin.
+  </p>
 
-<h2 id="quickstart">Quickstart</h2>
-<p>The bundled example needs no API key and no cluster. It still drives the real loop, the real
-tools, and a real sandbox.</p>
+  <div class="split">
+    <div class="tablewrap">
+      <table>
+        <caption>k8s/ manifests</caption>
+        <thead><tr><th scope="col">File</th><th scope="col">Objects</th><th scope="col">Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="nowrap"><code>00-namespace.yaml</code></td><td class="nowrap">Namespace, 2&times; ServiceAccount</td><td>Enforces the restricted Pod Security Standard. Sandbox accounts mount no token.</td></tr>
+          <tr><td class="nowrap"><code>10-rbac.yaml</code></td><td class="nowrap">Role, RoleBinding</td><td>Pods and pods/exec in one namespace. No list, no watch, no logs.</td></tr>
+          <tr><td class="nowrap"><code>20-network-policy.yaml</code></td><td class="nowrap">NetworkPolicy</td><td>Denies sandbox egress except DNS, so code under test cannot phone out.</td></tr>
+          <tr><td class="nowrap"><code>30-quota.yaml</code></td><td class="nowrap">ResourceQuota, LimitRange</td><td>Caps pods and CPU against a runaway loop.</td></tr>
+          <tr><td class="nowrap"><code>40-runner-job.yaml</code></td><td class="nowrap">Secret, Job, PVC</td><td>Runs the agent itself, with the API key mounted from a Secret.</td></tr>
+        </tbody>
+      </table>
+    </div>
 
-<pre><code>git clone https://github.com/robertguozt/Loop-Debugger
+    <div class="panel">
+      <div class="panel-head"><span class="panel-title">k8s/10-rbac.yaml</span>
+        <span class="right">
+          <button class="btn btn-icon btn-sm" type="button" data-copy="#rbac-src"
+                  aria-label="Copy RBAC rules to clipboard" title="Copy">
+            <svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg>
+          </button>
+        </span>
+      </div>
+<pre id="rbac-src"><code>rules:
+  <span class="tok-c"># readiness polls use read_namespaced_pod</span>
+  - apiGroups: [<span class="tok-a">""</span>]
+    resources: [<span class="tok-a">"pods"</span>]
+    verbs: [<span class="tok-a">"get"</span>, <span class="tok-a">"create"</span>, <span class="tok-a">"delete"</span>]
+  <span class="tok-c"># the client GETs /pods/{name}/exec</span>
+  - apiGroups: [<span class="tok-a">""</span>]
+    resources: [<span class="tok-a">"pods/exec"</span>]
+    verbs: [<span class="tok-a">"get"</span>, <span class="tok-a">"create"</span>]</code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="install" aria-labelledby="h-install">
+  <div class="sec-head"><span class="sec-num">05</span><h2 id="h-install">Install</h2></div>
+  <p class="sec-sub">
+    The bundled example needs no API key and no cluster. It still drives the real loop, the real
+    tools, and a real sandbox.
+  </p>
+
+  <div class="panel">
+    <div role="tablist" aria-label="Installation target">
+      <button role="tab" id="tab-local" aria-controls="pane-local" aria-selected="true" tabindex="0">Local sandbox</button>
+      <button role="tab" id="tab-k8s" aria-controls="pane-k8s" aria-selected="false" tabindex="-1">Kubernetes</button>
+      <button role="tab" id="tab-docker" aria-controls="pane-docker" aria-selected="false" tabindex="-1">Container</button>
+      <button role="tab" id="tab-dev" aria-controls="pane-dev" aria-selected="false" tabindex="-1">Development</button>
+    </div>
+
+    <div role="tabpanel" id="pane-local" aria-labelledby="tab-local" tabindex="0">
+      <div class="panel-head" style="border-top:0">
+        <span class="panel-title">no cluster, no API key</span>
+        <span class="right"><button class="btn btn-icon btn-sm" type="button" data-copy="#cmd-local"
+          aria-label="Copy local install commands" title="Copy"><svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg></button></span>
+      </div>
+<pre id="cmd-local"><code>git clone https://github.com/robertguozt/Loop-Debugger
 cd Loop-Debugger
-pip install -e ".[dev]"
+pip install -e <span class="tok-a">".[dev]"</span>
 
-python examples/run_example.py            # scripted model, local sandbox
-python examples/run_example.py --live     # real model, local sandbox
-python examples/run_example.py --live --k8s   # real model, Kubernetes sandbox</code></pre>
+python examples/run_example.py            <span class="tok-c"># scripted model</span>
+python examples/run_example.py --live      <span class="tok-c"># real model</span></code></pre>
+    </div>
 
-<p>Against your own repository:</p>
-
-<pre><code>export ANTHROPIC_API_KEY=sk-ant-...
+    <div role="tabpanel" id="pane-k8s" aria-labelledby="tab-k8s" tabindex="0" hidden>
+      <div class="panel-head" style="border-top:0">
+        <span class="panel-title">against your own repository</span>
+        <span class="right"><button class="btn btn-icon btn-sm" type="button" data-copy="#cmd-k8s"
+          aria-label="Copy Kubernetes commands" title="Copy"><svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg></button></span>
+      </div>
+<pre id="cmd-k8s"><code>export ANTHROPIC_API_KEY=sk-ant-...
 kubectl apply -f k8s/
 
 loopdbg --repo /path/to/project \
-            --target tests/test_thing.py \
-            --namespace debug-agent --revert -v</code></pre>
+        --target tests/test_thing.py \
+        --namespace debug-agent --revert -v</code></pre>
+    </div>
 
-<p><code>--revert</code> undoes the agent's edits before it exits and prints the diff. Use it
-the first few times you point this at something you care about.</p>
+    <div role="tabpanel" id="pane-docker" aria-labelledby="tab-docker" tabindex="0" hidden>
+      <div class="panel-head" style="border-top:0">
+        <span class="panel-title">build and run the runner image</span>
+        <span class="right"><button class="btn btn-icon btn-sm" type="button" data-copy="#cmd-docker"
+          aria-label="Copy container commands" title="Copy"><svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg></button></span>
+      </div>
+<pre id="cmd-docker"><code>docker build -t loopdbg:latest .
 
-<h2 id="run">The example run</h2>
-<p>
-  <code>examples/broken_project</code> ships a small statistics library where
-  <code>calc.stats.median</code> returns the upper middle element of an even-sized sample
-  instead of the mean of the central pair. Two of eight tests fail.
-</p>
+docker run --rm \
+  -e ANTHROPIC_API_KEY \
+  -v <span class="tok-a">"$PWD"</span>:/src \
+  loopdbg:latest --repo /src --target tests --executor local</code></pre>
+    </div>
 
-<div class="trace">
-  <div class="row"><span class="n">1</span><span class="ph">reproduce</span><span class="ok">ok</span><span class="tool">create_ephemeral_debug_pod <span class="arg">image=python:3.11-slim</span></span></div>
-  <div class="row"><span class="n">2</span><span class="ph">reproduce</span><span class="ok">ok</span><span class="tool">run_test_suite <span class="fail">VERDICT: FAIL &mdash; 2 failing, 6 passing</span></span></div>
-  <div class="row"><span class="n">3</span><span class="ph">localize</span><span class="ok">ok</span><span class="tool">search_codebase <span class="arg">/def median/</span></span></div>
-  <div class="row"><span class="n">4</span><span class="ph">localize</span><span class="ok">ok</span><span class="tool">read_file <span class="arg">calc/stats.py:20-34</span></span></div>
-  <div class="row"><span class="n">5</span><span class="ph">patch</span><span class="ok">ok</span><span class="tool">apply_unified_diff_or_patch <span class="arg">calc/stats.py &minus;1/+3</span></span></div>
-  <div class="row"><span class="n">6</span><span class="ph">verify</span><span class="ok">ok</span><span class="tool">run_test_suite <span class="pass">VERDICT: PASS &mdash; 8 passed</span></span></div>
-  <div class="row"><span class="n">7</span><span class="ph">verify</span><span class="ok">ok</span><span class="tool">cleanup_pod</span></div>
-  <div class="row"><span class="n">8</span><span class="ph">done</span><span class="ok">&#8226;</span><span class="tool">report_resolution <span class="arg">resolved=true</span></span></div>
-</div>
+    <div role="tabpanel" id="pane-dev" aria-labelledby="tab-dev" tabindex="0" hidden>
+      <div class="panel-head" style="border-top:0">
+        <span class="panel-title">checks that gate CI</span>
+        <span class="right"><button class="btn btn-icon btn-sm" type="button" data-copy="#cmd-dev"
+          aria-label="Copy development commands" title="Copy"><svg width="12" height="12" aria-hidden="true"><use href="#ic-copy"/></svg></button></span>
+      </div>
+<pre id="cmd-dev"><code>pytest -q        <span class="tok-c"># 31 tests, no cluster required</span>
+mypy             <span class="tok-c"># strict, on loopdbg</span>
+ruff check .
+ruff format --check .</code></pre>
+    </div>
+  </div>
 
-<p>Root cause, in the agent's words: <em>median returned <code>ordered[len(ordered) // 2]</code>
-for every sample size, so an even-sized sample yielded the upper central value instead of the
-mean of the two central values.</em> The diff it produced:</p>
+  <div class="note">
+    <p><code>--revert</code> restores every file the agent touched and prints the diff it would have
+    left behind. Worth using the first few times you point this at something you care about.</p>
+  </div>
+</section>
 
-<pre class="diff"><code><span class="meta">--- a/calc/stats.py
-+++ b/calc/stats.py
-@@ -25,7 +25,9 @@</span>
-         raise EmptySampleError("median of an empty sample")
-     ordered = sorted(values)
-     midpoint = len(ordered) // 2
-<span class="del">-    return ordered[midpoint]</span>
-<span class="add">+    if len(ordered) % 2 == 1:
-+        return float(ordered[midpoint])
-+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0</span></code></pre>
-
-<h2 id="cluster">Inside the cluster</h2>
-<p>
-  <code>KubernetesExecutor</code> talks to <code>CoreV1Api</code> and makes four calls:
-  create the pod, read it while waiting for Ready, exec into it, delete it. Commands go
-  through <code>stream(api.connect_get_namespaced_pod_exec, ...)</code> with
-  <code>_preload_content=False</code>, and the exit status comes off the error channel.
-  Source arrives as a tar stream written to the exec stdin.
-</p>
-
-<pre><code>k8s/00-namespace.yaml     namespace (restricted PSS) + two service accounts
-k8s/10-rbac.yaml          Role + RoleBinding for the runner
-k8s/20-network-policy.yaml sandbox egress: DNS only
-k8s/30-quota.yaml         ResourceQuota + LimitRange
-k8s/40-runner-job.yaml    the runner Job and its secret</code></pre>
-
-<p>The Role grants what <code>executors.py</code> actually calls, and stops there:</p>
-
-<pre><code>rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "create", "delete"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["get", "create"]</code></pre>
-
-<h3>Guard rails</h3>
-<ul>
-  <li><strong>Path containment.</strong> Every path resolves against the repository root, and anything outside it raises before the read or write.</li>
-  <li><strong>Patch validation.</strong> The snippet must match exactly once, and a patch that would break <code>ast.parse</code> is rejected instead of written.</li>
-  <li><strong>Image allowlist.</strong> The image name arrives from the model, so it checks against a prefix list before any pull.</li>
-  <li><strong>Sandbox hardening.</strong> No service account token, all capabilities dropped, UID 1000, <code>RuntimeDefault</code> seccomp, egress denied except DNS.</li>
-  <li><strong>Bounded blast radius.</strong> A ResourceQuota caps pods and CPU, and the executor deletes its pod from a <code>finally</code> block even when the model crashes the loop.</li>
-</ul>
-
-<h2>Development</h2>
-<pre><code>pip install -e ".[dev]"
-pytest -q        # 31 tests, no cluster required
-mypy             # strict, on loopdbg
-ruff check .</code></pre>
-
+<section id="guardrails" aria-labelledby="h-guard">
+  <div class="sec-head"><span class="sec-num">06</span><h2 id="h-guard">Guard rails</h2></div>
+  <p class="sec-sub">
+    An agent that edits files and runs containers needs its blast radius decided in advance, not
+    inferred at runtime.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <caption>Enforced in code and in the manifests</caption>
+      <thead><tr><th scope="col">Guard</th><th scope="col">Where</th><th scope="col">Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td class="nowrap"><strong>Path containment</strong></td><td class="nowrap"><code>config.resolve_in_repo</code></td><td>Every path resolves against the repository root. Anything outside raises before the read or write.</td></tr>
+        <tr><td class="nowrap"><strong>Patch validation</strong></td><td class="nowrap"><code>tools._patch</code></td><td>The snippet must match exactly once, and an edit that breaks <code>ast.parse</code> is rejected rather than written.</td></tr>
+        <tr><td class="nowrap"><strong>Image allowlist</strong></td><td class="nowrap"><code>SandboxConfig.validate_image</code></td><td>The image name arrives from the model, so it checks against a prefix list before any pull.</td></tr>
+        <tr><td class="nowrap"><strong>Sandbox hardening</strong></td><td class="nowrap"><code>_pod_manifest</code>, <code>00-namespace</code></td><td>No service account token, all capabilities dropped, UID 1000, <code>RuntimeDefault</code> seccomp.</td></tr>
+        <tr><td class="nowrap"><strong>Egress denial</strong></td><td class="nowrap"><code>20-network-policy</code></td><td>Sandbox pods reach DNS and nothing else.</td></tr>
+        <tr><td class="nowrap"><strong>Guaranteed teardown</strong></td><td class="nowrap"><code>agent.run_debug_cycle</code></td><td>The pod is deleted from a <code>finally</code> block, including when the model call raises.</td></tr>
+        <tr><td class="nowrap"><strong>Step budget</strong></td><td class="nowrap"><code>ModelConfig.max_steps</code></td><td>The loop stops at 30 turns and reports <code>max_steps</code> rather than running on.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
 </div>
 
 <footer>
-  <div class="wrap">
-    <span>MIT licensed &middot; built with the Anthropic Python SDK</span>
-    <span><a href="https://github.com/robertguozt/Loop-Debugger">github.com/robertguozt/Loop-Debugger</a></span>
-  </div>
+  <span>MIT licensed &middot; built on the Anthropic Python SDK</span>
+  <span><a href="https://github.com/robertguozt/Loop-Debugger" rel="noopener">github.com/robertguozt/Loop-Debugger</a></span>
 </footer>
 
+<script>
+(() => {
+  "use strict";
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const icon = (n, s = 13) =>
+    `<svg width="${s}" height="${s}" aria-hidden="true"><use href="#ic-${n}"/></svg>`;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  /* ── theme ─────────────────────────────────────────────────────────── */
+  const root = document.documentElement;
+  const themeBtn = $("#theme");
+  const themeIc = $("#theme-ic use");
+  let stored = null;
+  try { stored = localStorage.getItem("loopdbg-theme"); } catch { stored = null; }
+  const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const applyTheme = (mode) => {
+    root.setAttribute("data-theme", mode);
+    const dark = mode === "dark";
+    themeBtn.setAttribute("aria-pressed", String(dark));
+    themeBtn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    themeIc.setAttribute("href", dark ? "#ic-sun" : "#ic-moon");
+  };
+  applyTheme(stored || (prefersDark ? "dark" : "light"));
+  themeBtn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("loopdbg-theme", next); } catch { /* private mode */ }
+  });
+
+  /* ── rail scroll spy ───────────────────────────────────────────────── */
+  const railLinks = $$(".rail a");
+  const byId = new Map(railLinks.map((a) => [a.getAttribute("href").slice(1), a]));
+  const sections = $$("main section").filter((s) => byId.has(s.id));
+  if ("IntersectionObserver" in window && sections.length) {
+    const seen = new Set();
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => e.isIntersecting ? seen.add(e.target.id) : seen.delete(e.target.id));
+      const first = sections.find((s) => seen.has(s.id));
+      railLinks.forEach((a) => a.removeAttribute("aria-current"));
+      if (first) byId.get(first.id).setAttribute("aria-current", "true");
+    }, { rootMargin: "-56px 0px -65% 0px", threshold: 0 });
+    sections.forEach((s) => io.observe(s));
+  }
+
+  /* ── copy buttons: idle → loading → done | error ───────────────────── */
+  $$("[data-copy]").forEach((btn) => {
+    const original = btn.innerHTML;
+    let timer = null;
+    btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      const src = $(btn.dataset.copy);
+      if (!src) return;
+      clearTimeout(timer);
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      btn.innerHTML = '<span class="spinner"></span>';
+      const settle = (state, name, label) => {
+        btn.removeAttribute("aria-busy");
+        btn.dataset.state = state;
+        btn.innerHTML = icon(name, 12);
+        btn.setAttribute("aria-label", label);
+        btn.disabled = false;
+        timer = setTimeout(() => {
+          delete btn.dataset.state;
+          btn.innerHTML = original;
+          btn.setAttribute("aria-label", "Copy to clipboard");
+        }, 1800);
+      };
+      try {
+        if (!navigator.clipboard) throw new Error("clipboard unavailable");
+        await navigator.clipboard.writeText(src.innerText.trim());
+        settle("done", "check", "Copied");
+      } catch {
+        settle("error", "alert", "Copy failed. Select the text and copy manually.");
+      }
+    });
+  });
+
+  /* ── tool explorer ─────────────────────────────────────────────────── */
+  const TOOLS = [
+    { n: "create_ephemeral_debug_pod", i: "layers", sig: "(image?, code_volume_map?) -> pod_name",
+      d: "Creates the sandbox, waits for Ready, and streams the project in as a tar over the exec stdin. Call it once, before any command or test.",
+      p: [["image", "string", "Container image. Checked against the prefix allowlist before any pull."],
+          ["code_volume_map", "object", "Local path to sandbox path. Defaults to the whole repository at the configured workdir."]],
+      r: "Pod name, namespace, backend, image, and the mounted paths.",
+      e: "Refuses an image outside the allowlist. Returns the existing pod if one is already running." },
+    { n: "execute_command_in_pod", i: "terminal", sig: "(cmd, timeout_s?) -> exit_code, stdout, stderr",
+      d: "Runs an argv list inside the pod through connect_get_namespaced_pod_exec. Use it to reproduce crashes, run linters, install dependencies, or inspect the environment.",
+      p: [["cmd", "string[]", "Argv list. Required, and must be non-empty."],
+          ["timeout_s", "integer", "Per-command timeout. Must be positive; zero is rejected rather than silently defaulted."]],
+      r: "Rendered exit code, duration, stdout and stderr, middle-truncated past 8 KB.",
+      e: "A dropped exec connection reports a non-zero exit code rather than a false success." },
+    { n: "run_test_suite", i: "check", sig: "(test_target, extra_args?) -> verdict + raw output",
+      d: "Re-syncs local edits into the pod, runs pytest, and prepends a one-line verdict the model can act on without parsing the tail itself.",
+      p: [["test_target", "string", "A path or node id, such as tests/test_calc.py::test_median."],
+          ["extra_args", "string[]", "Extra pytest flags, for example -x or -q."]],
+      r: "PASS, FAIL with counts, TIMEOUT, or NO TESTS COLLECTED, then the raw run.",
+      e: "Collection errors are counted once. pytest prints them twice, and only the final summary line is read." },
+    { n: "read_file", i: "file", sig: "(filepath, start_line?, end_line?) -> numbered lines",
+      d: "Returns a line-numbered slice of a source file. The agent is told to read the frames named in the traceback before editing anything.",
+      p: [["filepath", "string", "Relative to the repository root."],
+          ["start_line", "integer", "First line, 1-indexed and inclusive."],
+          ["end_line", "integer", "Last line, inclusive."]],
+      r: "The path, the range, the total line count, and the numbered body.",
+      e: "Rejects an inverted range, a start past the end of the file, and any path outside the repository." },
+    { n: "search_codebase", i: "search", sig: "(regex_pattern, file_pattern?, max_results?) -> file:line:text",
+      d: "Scans the repository with a Python regular expression. Used to locate error signatures, definitions, and call sites around the stack trace.",
+      p: [["regex_pattern", "string", "Python re syntax."],
+          ["file_pattern", "string", "Glob on file names. Defaults to *.py."],
+          ["max_results", "integer", "Capped by max_search_matches in config."]],
+      r: "Match count, then file:line:text triples trimmed to 200 characters each.",
+      e: "An invalid regex returns the compile error rather than raising." },
+    { n: "apply_unified_diff_or_patch", i: "wrench", sig: "(filepath, original_snippet, replacement_snippet) -> summary",
+      d: "Replaces an exact snippet. The original must appear exactly once, which forces the model to read enough context to be specific.",
+      p: [["filepath", "string", "Relative to the repository root."],
+          ["original_snippet", "string", "Exact text including indentation. Must be unique."],
+          ["replacement_snippet", "string", "Replacement text."]],
+      r: "The path and the line delta, plus a reminder to re-run the suite.",
+      e: "A patch that would break ast.parse on a Python file is rejected with the line and message, and nothing is written." },
+    { n: "cleanup_pod", i: "reset", sig: "() -> confirmation",
+      d: "Deletes the sandbox pod. The agent calls it once the investigation ends, and the loop calls it again from a finally block so an abandoned run cannot leak a pod.",
+      p: [], r: "The deleted pod name, or a note that no pod exists.",
+      e: "A 404 during deletion is logged and swallowed. Teardown never raises." },
+    { n: "report_resolution", i: "branch", sig: "(resolved, root_cause, fix_summary, verification, files_changed?)",
+      d: "The terminal tool. Nothing else ends the loop. The agent is told to call it with resolved=false when it cannot fix the defect, describing what it ruled out.",
+      p: [["resolved", "boolean", "True only when the failing tests now pass."],
+          ["root_cause", "string", "One or two sentences naming the defect."],
+          ["fix_summary", "string", "What changed, file by file."],
+          ["verification", "string", "The command run and its result."]],
+      r: "Ends the run and populates the DebugReport.",
+      e: "Claiming resolved without a passing run in the transcript is the failure mode the phase contract exists to prevent." },
+  ];
+
+  const list = $("#toollist");
+  const detail = $("#tool-detail");
+  const emptyList = $("#tool-empty");
+  const filter = $("#tool-filter");
+  const filterStatus = $("#tool-filter-status");
+  let visible = TOOLS.slice();
+  let selected = -1;
+
+  const renderList = () => {
+    list.innerHTML = visible.map((t, idx) => `
+      <li role="presentation">
+        <button class="toolopt" role="option" type="button" id="opt-${idx}" tabindex="-1"
+                aria-selected="${TOOLS[selected] === t}" data-i="${TOOLS.indexOf(t)}">
+          ${icon(t.i, 13)}<span class="nm" title="${esc(t.n)}">${esc(t.n)}</span>
+          ${icon("chevron", 12)}
+        </button>
+      </li>`).join("");
+    const none = visible.length === 0;
+    emptyList.hidden = !none;
+    list.hidden = none;
+  };
+
+  const renderDetail = (t) => {
+    if (!t) return;
+    const params = t.p.length
+      ? `<div class="tablewrap" style="margin-top:var(--s-3)"><table style="min-width:0">
+           <caption>Input schema</caption>
+           <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Notes</th></tr></thead>
+           <tbody>${t.p.map(([n, ty, note]) => `<tr>
+             <td class="nowrap"><code>${esc(n)}</code></td>
+             <td class="nowrap" style="color:var(--subtle)">${esc(ty)}</td>
+             <td>${esc(note)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p style="font-size:12.5px;color:var(--subtle);margin-top:var(--s-3)">Takes no input.</p>`;
+    detail.innerHTML = `
+      <h3>${esc(t.n)}</h3>
+      <p class="sig">${esc(t.sig)}</p>
+      <p style="font-size:13px">${esc(t.d)}</p>
+      ${params}
+      <dl class="spec" style="margin-top:var(--s-3);border:1px solid var(--border);border-radius:var(--r-2)">
+        <dt>Returns</dt><dd style="text-align:left;font-family:var(--ui);font-size:12.5px;color:var(--muted)">${esc(t.r)}</dd>
+        <dt>Failure</dt><dd style="text-align:left;font-family:var(--ui);font-size:12.5px;color:var(--muted)">${esc(t.e)}</dd>
+      </dl>`;
+  };
+
+  const select = (globalIdx, focusOpt) => {
+    selected = globalIdx;
+    renderList();
+    renderDetail(TOOLS[globalIdx]);
+    const opt = list.querySelector(`[data-i="${globalIdx}"]`);
+    if (opt) {
+      list.setAttribute("aria-activedescendant", opt.id);
+      if (focusOpt) opt.scrollIntoView({ block: "nearest" });
+    }
+  };
+
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".toolopt");
+    if (btn) select(Number(btn.dataset.i), false);
+  });
+
+  list.addEventListener("keydown", (e) => {
+    if (!visible.length) return;
+    const order = visible.map((t) => TOOLS.indexOf(t));
+    const at = order.indexOf(selected);
+    let next = null;
+    if (e.key === "ArrowDown") next = order[Math.min(order.length - 1, at + 1)] ?? order[0];
+    else if (e.key === "ArrowUp") next = order[Math.max(0, at - 1)] ?? order[0];
+    else if (e.key === "Home") next = order[0];
+    else if (e.key === "End") next = order[order.length - 1];
+    else return;
+    e.preventDefault();
+    select(next, true);
+  });
+
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    visible = TOOLS.filter((t) => t.n.includes(q) || t.d.toLowerCase().includes(q));
+    filterStatus.textContent = visible.length === 1
+      ? "1 tool matches" : `${visible.length} tools match`;
+    renderList();
+  });
+
+  renderList();
+})();
+</script>
+<script>
+(() => {
+  "use strict";
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ── mobile section nav (disclosure) ───────────────────────────────── */
+  const navBtn = $("#nav-toggle");
+  const navPanel = $("#mobilenav");
+  const setNav = (open) => {
+    navPanel.hidden = !open;
+    navBtn.setAttribute("aria-expanded", String(open));
+    navBtn.setAttribute("aria-label", open ? "Close section navigation" : "Open section navigation");
+  };
+  navBtn.addEventListener("click", () => setNav(navPanel.hidden));
+  navPanel.addEventListener("click", (e) => { if (e.target.closest("a")) setNav(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !navPanel.hidden) { setNav(false); navBtn.focus(); }
+  });
+  matchMedia("(min-width: 941px)").addEventListener("change", (e) => { if (e.matches) setNav(false); });
+
+  /* ── install tabs ──────────────────────────────────────────────────── */
+  const tabs = $$('[role="tab"]');
+  const activate = (tab, focus = true) => {
+    tabs.forEach((t) => {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      $("#" + t.getAttribute("aria-controls")).hidden = !on;
+    });
+    if (focus) tab.focus();
+  };
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => activate(tab, false));
+    tab.addEventListener("keydown", (e) => {
+      const i = tabs.indexOf(tab);
+      const map = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 };
+      if (!(e.key in map)) return;
+      e.preventDefault();
+      activate(tabs[(map[e.key] + tabs.length) % tabs.length]);
+    });
+  });
+
+  /* ── run replay ────────────────────────────────────────────────────── */
+  const steps   = $$("#steps li");
+  const badge   = $("#replay-badge");
+  const status  = $("#rp-status");
+  const errBox  = $("#rp-error");
+  const playBtn = $("#rp-play");
+  const stepBtn = $("#rp-step");
+  const resetBtn= $("#rp-reset");
+  const failBox = $("#rp-fail");
+  const TOTAL   = steps.length;
+  const FAIL_AT = 3;
+  const reduce  = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let at = 0, playing = false, timer = null, failed = false;
+  const bodies = steps.map((li) => $(".tl", li).innerHTML);
+
+  const paint = () => {
+    steps.forEach((li, i) => {
+      li.dataset.on = i < at ? "1" : "0";
+      li.dataset.cur = i === at - 1 && !playing ? "1" : "0";
+    });
+    status.textContent = failed ? `stopped at ${at} / ${TOTAL}` : `${at} / ${TOTAL}`;
+    resetBtn.disabled = at === 0 && !failed;
+    stepBtn.disabled = playing || failed || at >= TOTAL;
+    playBtn.disabled = playing || failed || at >= TOTAL;
+    if (failed)          { badge.textContent = "api_error";  badge.className = "badge bad"; }
+    else if (at >= TOTAL){ badge.textContent = "resolved";   badge.className = "badge ok"; }
+    else if (at > 0)     { badge.textContent = "running";    badge.className = "badge"; }
+    else                 { badge.textContent = "idle";       badge.className = "badge"; }
+  };
+
+  const skeleton = (li) => {
+    const w = 42 + ((li.dataset.seed | 0) % 3) * 14;
+    $(".tl", li).innerHTML =
+      `<span class="skel" style="display:block;width:${w}%;max-width:320px"></span>`;
+  };
+
+  const runStep = (done) => {
+    if (failBox.checked && at === FAIL_AT) {
+      failed = true; playing = false;
+      errBox.hidden = false;
+      $(".tl", steps[at]).innerHTML = bodies[at];
+      paint();
+      playBtn.removeAttribute("aria-busy");
+      playBtn.innerHTML = '<svg width="12" height="12" aria-hidden="true"><use href="#ic-play"/></svg>Play';
+      return;
+    }
+    const li = steps[at];
+    li.dataset.on = "1";
+    li.dataset.cur = "1";
+    skeleton(li);
+    const settle = () => {
+      $(".tl", li).innerHTML = bodies[at];
+      at += 1;
+      paint();
+      if (done) done();
+    };
+    reduce ? settle() : (timer = setTimeout(settle, 260));
+  };
+
+  stepBtn.addEventListener("click", () => { if (at < TOTAL) runStep(); });
+
+  playBtn.addEventListener("click", () => {
+    playing = true;
+    playBtn.setAttribute("aria-busy", "true");
+    playBtn.innerHTML = '<span class="spinner"></span>Running';
+    paint();
+    const tick = () => {
+      if (!playing || failed) return;
+      if (at >= TOTAL) {
+        playing = false;
+        playBtn.removeAttribute("aria-busy");
+        playBtn.innerHTML = '<svg width="12" height="12" aria-hidden="true"><use href="#ic-play"/></svg>Play';
+        paint();
+        return;
+      }
+      runStep(tick);
+    };
+    tick();
+  });
+
+  resetBtn.addEventListener("click", () => {
+    clearTimeout(timer);
+    at = 0; playing = false; failed = false;
+    errBox.hidden = true;
+    steps.forEach((li, i) => { $(".tl", li).innerHTML = bodies[i]; });
+    playBtn.removeAttribute("aria-busy");
+    playBtn.innerHTML = '<svg width="12" height="12" aria-hidden="true"><use href="#ic-play"/></svg>Play';
+    paint();
+  });
+
+  failBox.addEventListener("change", () => {
+    if (!failBox.checked && failed) resetBtn.click();
+  });
+
+  paint();
+})();
+</script>
 </body>
 </html>
